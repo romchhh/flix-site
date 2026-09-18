@@ -47,6 +47,27 @@ def clean_text(value) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def clean_description(value) -> str:
+    """Опис товару: зберігаємо переноси рядків і абзаци."""
+    if not value:
+        return ""
+    text = re.sub(r"<[^>]+>", "", str(value))
+    text = re.sub(r"[\U0001F300-\U0001FAFF]", "", text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")]
+    out: list[str] = []
+    prev_empty = False
+    for line in lines:
+        if not line:
+            if not prev_empty and out:
+                out.append("")
+            prev_empty = True
+        else:
+            out.append(line)
+            prev_empty = False
+    return "\n".join(out).strip()
+
+
 def parse_tariffs(price_str) -> list[tuple[int, float]]:
     tariffs: list[tuple[int, float]] = []
     if price_str is None:
@@ -119,7 +140,7 @@ def serialize_mini_product(raw: dict) -> dict:
         "name": name,
         "icon": icon,
         "color": color,
-        "description": clean_text(raw.get("product_description")),
+        "description": clean_description(raw.get("product_description")),
         "features": "",
         "recurring": recurring,
         "price": monthly,

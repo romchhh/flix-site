@@ -11,6 +11,7 @@ import { JsonLd } from "@/components/JsonLd";
 import { parseFaq } from "@/lib/faq";
 import { letterOf, badgeClass, badgeLabel } from "@/lib/display";
 import { breadcrumbJsonLd, faqJsonLd, pageMetadata, productJsonLd, productSeo } from "@/lib/seo";
+import { ProductDescription } from "@/components/ProductDescription";
 import { BuyForm } from "./BuyForm";
 import { backendJson } from "@/lib/backend";
 import type { CatalogCategory, CatalogProduct } from "@/lib/types";
@@ -94,7 +95,9 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
             <h1>{product.name}</h1>
           </div>
 
-          <p className="p-lede">{product.description}</p>
+          {product.description && (
+            <ProductDescription text={product.description} className="p-lede prose-desc" />
+          )}
 
           {product.features && (
             <div className="feat" style={{ maxWidth: 520 }}>

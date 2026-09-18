@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ServiceIcon } from "./ServiceIcon";
 import { Arrow } from "./Logo";
 import { badgeClass, badgeLabel } from "@/lib/display";
+import { ProductDescription } from "./ProductDescription";
 
 /**
  * Картка каталогу.
@@ -44,13 +45,15 @@ export function CatalogCard({ name, icon, color, description, features, priceMai
       )}
 
       <div className="brand">
-        <ServiceIcon slug={icon} color={color} letter={name.charAt(0)} size={30} />
+        {!showPhoto && (
+          <ServiceIcon slug={icon} color={color} letter={name.charAt(0)} size={30} />
+        )}
         <h3>{name}</h3>
       </div>
       {!showPhoto && tag && <span className={badgeClass(badge)} style={{ alignSelf: "flex-start", marginBottom: 10 }}>{tag}</span>}
 
       <div ref={body} className={open ? "cb" : "cb cb-cut"}>
-        {description && <p>{description}</p>}
+        {description && <ProductDescription text={description} className="prose-desc prose-desc-compact" />}
         {features.length > 0 && (
           <div className="feat">
             {features.map((f, i) => <span key={i}><i>✓</i> {f}</span>)}
@@ -75,7 +78,7 @@ export function CatalogCard({ name, icon, color, description, features, priceMai
         <small>{priceNote}</small>
       </div>
 
-      <Link className="btn block" href={href} style={{ marginTop: 16 }}>
+      <Link className="btn sm block cat-card-btn" href={href}>
         Оформити<span className="dot"><Arrow /></span>
       </Link>
     </div>

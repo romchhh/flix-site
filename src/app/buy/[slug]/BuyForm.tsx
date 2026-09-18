@@ -47,51 +47,55 @@ export function BuyForm({ productId, slug, options, loggedIn, free, recurring = 
   }
 
   return (
-    <div>
-      <h3 className="buy-form-title">
-        {recurring ? "Помісячна підписка" : "Обери строк"}
-      </h3>
+    <div className="buy-form">
+      <section className="buy-form-block buy-form-intro">
+        <h3 className="buy-form-title">
+          {recurring ? "Помісячна підписка" : "Обери строк"}
+        </h3>
+        {recurring && (
+          <p className="buy-form-note">
+            Платиш за місяць, далі продовжується автоматично. Скасувати можна будь-коли в кабінеті.
+          </p>
+        )}
+      </section>
 
-      {recurring && (
-        <p className="tip" style={{ marginTop: 0, marginBottom: 14 }}>
-          Платиш за місяць, далі продовжується автоматично. Скасувати можна будь-коли в кабінеті.
-        </p>
-      )}
+      <section className="buy-form-block buy-form-plans">
+        {options.map((o) => (
+          <button
+            key={o.months}
+            className={`plan${o.months === months ? " on" : ""}`}
+            onClick={() => setMonths(o.months)}
+            type="button"
+          >
+            <span className="rad" />
+            <span className="pl">
+              <b>{o.label}</b>
+              <small>{uah(o.perMonth)} ₴ за місяць</small>
+            </span>
+            <span className="pr">
+              <b>{uah(o.total)} ₴</b>
+              {o.off > 0 && <small>−{o.off}%</small>}
+            </span>
+          </button>
+        ))}
+      </section>
 
-      {options.map((o) => (
-        <button
-          key={o.months}
-          className={`plan${o.months === months ? " on" : ""}`}
-          onClick={() => setMonths(o.months)}
-          style={{ width: "100%", border: "2px solid transparent", textAlign: "left" }}
-          type="button"
-        >
-          <span className="rad" />
-          <span className="pl">
-            <b>{o.label}</b>
-            <small>{uah(o.perMonth)} ₴ за місяць</small>
-          </span>
-          <span className="pr">
-            <b>{uah(o.total)} ₴</b>
-            {o.off > 0 && <small>−{o.off}%</small>}
-          </span>
-        </button>
-      ))}
-
-      <div className="buy-form-foot">
+      <section className="buy-form-block buy-form-meta">
         {free !== null && free > 0 && free <= 3 && (
-          <p className="tip" style={{ textAlign: "center" }}>
+          <p className="buy-form-note buy-form-note-box">
             Лишилось {free} шт. за цією ціною
           </p>
         )}
 
-        {deliveryNote && <p className="tip" style={{ textAlign: "center" }}>{deliveryNote}</p>}
+        {deliveryNote && (
+          <p className="buy-form-note buy-form-note-box">{deliveryNote}</p>
+        )}
 
-        <p className="terms">
+        <p className="buy-form-terms">
           Оплата карткою через Monobank.
           {recurring ? " Наступні списання — раз на місяць, тією ж карткою." : ""}
         </p>
-      </div>
+      </section>
 
       <div className="buy-pay-wrap">
         <div className="buy-pay-inner">
