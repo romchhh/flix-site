@@ -75,7 +75,7 @@ export default async function Cabinet({ searchParams }:
   return (
     <>
       <SiteHeader />
-      <div className="wrap-narrow">
+      <div className="wrap">
       <h1 className="h-sm" style={{ margin: "28px 0 22px" }}>Мої<br /><em>підписки</em></h1>
 
       {me.telegramId && (
@@ -157,7 +157,7 @@ export default async function Cabinet({ searchParams }:
       ) : (
         <>
           {active.length > 0 && (
-            <div className="list">
+            <div className="cards catalog cab-grid">
               {active.map((s) => (
                 <SubCard key={s.id} sub={{
                   id: s.id,
@@ -210,31 +210,31 @@ export default async function Cabinet({ searchParams }:
           {past.length > 0 && (
             <>
               <h2 style={{ fontSize: 22, margin: active.length ? "36px 0 14px" : "8px 0 14px" }}>Архів</h2>
-              <div className="list">
+              <div className="cards catalog cab-grid">
                 {past.map((s) => (
-                  <article className="sub sub-v2 sub-arch" key={s.id}>
-                    <div className="sub-layout">
-                      <SubPhoto
-                        name={s.name}
-                        icon={s.icon}
-                        color={s.color}
-                        photoUrl={s.photoUrl}
-                        productId={s.productId}
-                        size={44}
-                      />
-                      <div className="sub-content">
-                      <header className="sub-body-head">
-                        <div>
-                          <h3>{s.name}</h3>
-                          <p className="sub-price-line">
-                            {s.expiresAt
-                              ? `діяла до ${new Date(s.expiresAt).toLocaleDateString("uk-UA")}`
-                              : "завершена"}
-                            {s.price != null ? ` · ${s.price}₴` : ""}
-                          </p>
+                  <article className="card sub-card sub-arch" key={s.id}>
+                    <SubPhoto
+                      name={s.name}
+                      icon={s.icon}
+                      color={s.color}
+                      photoUrl={s.photoUrl}
+                      productId={s.productId}
+                      size={48}
+                      badge={
+                        <div className="sub-photo-badges">
+                          <span className="badge b-off">архів</span>
                         </div>
-                        <span className="badge b-off">архів</span>
-                      </header>
+                      }
+                    />
+                    <div className="brand">
+                      <h3>{s.name}</h3>
+                    </div>
+                    <p className="sub-price-line">
+                      {s.expiresAt
+                        ? `діяла до ${new Date(s.expiresAt).toLocaleDateString("uk-UA")}`
+                        : "завершена"}
+                      {s.price != null ? ` · ${s.price}₴` : ""}
+                    </p>
                     <div className="acts">
                       {s.slug ? (
                         <Link className="btn sm btn-wide" href={`/buy/${s.slug}`}>
@@ -245,8 +245,6 @@ export default async function Cabinet({ searchParams }:
                           До каталогу<span className="dot"><Arrow /></span>
                         </Link>
                       )}
-                    </div>
-                      </div>
                     </div>
                   </article>
                 ))}

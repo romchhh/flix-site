@@ -112,31 +112,16 @@ export function SubCard({ sub }: { sub: Sub }) {
 
   return (
     <>
-      <article className="sub sub-v2">
-        <div className="sub-layout">
-          <SubPhoto
-            name={sub.name}
-            icon={sub.icon}
-            color={sub.color}
-            photoUrl={sub.photoUrl}
-            productId={sub.productId}
-            size={52}
-          />
-
-          <div className="sub-content">
-          <header className="sub-body-head">
-            <div>
-              <h3>
-                {sub.slug ? (
-                  <Link href={`/buy/${sub.slug}`} className="sub-title-link">{sub.name}</Link>
-                ) : sub.name}
-              </h3>
-              <p className="sub-price-line">
-                {sub.price != null ? `${sub.price}₴` : ""}
-                {sub.recurring && sub.months ? ` · кожні ${sub.months} міс` : ""}
-              </p>
-            </div>
-            <div className="sub-head-badges">
+      <article className="card sub-card">
+        <SubPhoto
+          name={sub.name}
+          icon={sub.icon}
+          color={sub.color}
+          photoUrl={sub.photoUrl}
+          productId={sub.productId}
+          size={56}
+          badge={
+            <div className="sub-photo-badges">
               <span className={`badge ${src.cls}`}>{src.label}</span>
               {sub.recurring && !billingOn && (
                 <span className="badge b-off">без авто</span>
@@ -145,108 +130,120 @@ export function SubCard({ sub }: { sub: Sub }) {
                 {soon ? `${left} ${plural(left, "день", "дні", "днів")}` : "активна"}
               </span>
             </div>
-          </header>
+          }
+        />
 
-          <div className="sub-stats">
-            {sub.recurring && billingOn && nextPay && (
-              <div className="sub-stat">
-                <small>Наступне списання</small>
-                <b>{dateTimeUk(nextPay)}</b>
-              </div>
-            )}
-            {sub.recurring && (
-              <div className="sub-stat">
-                <small>Картка</small>
-                <b>{cardLabel || "не привʼязана"}</b>
-              </div>
-            )}
+        <div className="brand">
+          <h3>
+            {sub.slug ? (
+              <Link href={`/buy/${sub.slug}`} className="sub-title-link cat-card-title">{sub.name}</Link>
+            ) : sub.name}
+          </h3>
+        </div>
+        <p className="sub-price-line">
+          {sub.price != null ? `${sub.price}₴` : ""}
+          {sub.recurring && sub.months ? ` · кожні ${sub.months} міс` : ""}
+          {sub.profileName ? ` · ${sub.profileName}` : ""}
+        </p>
+
+        <div className="sub-stats">
+          {sub.recurring && billingOn && nextPay && (
             <div className="sub-stat">
-              <small>Доступ до</small>
-              <b>{dateUk(exp)}</b>
+              <small>Наступне списання</small>
+              <b>{dateTimeUk(nextPay)}</b>
             </div>
+          )}
+          {sub.recurring && (
             <div className="sub-stat">
-              <small>Залишилось</small>
-              <b>{left > 0 ? `${left} ${plural(left, "день", "дні", "днів")}` : "сьогодні"}</b>
+              <small>Картка</small>
+              <b>{cardLabel || "не привʼязана"}</b>
             </div>
+          )}
+          <div className="sub-stat">
+            <small>Доступ до</small>
+            <b>{dateUk(exp)}</b>
           </div>
-
-          <div className="track"><i className={soon ? "warn" : ""} style={{ width: `${pct}%` }} /></div>
-
-          {sub.recurring && charges.length > 0 && (
-            <div className="sub-history-wrap">
-              <button type="button" className="sub-history-toggle" onClick={() => setOpenHistory(!openHistory)}>
-                Історія списань ({charges.length})
-                <span className={`chev${openHistory ? " open" : ""}`}><Chevron /></span>
-              </button>
-              {openHistory && <PaymentHistory items={charges} title="" limit={20} compact />}
-            </div>
-          )}
-
-          <div className="acts">
-            <a className="btn sm soft" href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">
-              Менеджер
-            </a>
-            {(sub.login || sub.password) && (
-              <button className="btn sm soft" type="button" onClick={() => setOpenCreds(!openCreds)}>
-                {openCreds ? "Сховати дані" : "Дані входу"}
-                <span className="dot"><Chevron /></span>
-              </button>
-            )}
-            {sub.hasTotp && (
-              <button className="btn sm soft" type="button" onClick={fetchCode} disabled={codeBusy}>
-                {codeBusy ? "Код…" : "Код 2FA"}
-              </button>
-            )}
-            {billingOn && (
-              <button
-                className="btn sm soft btn-wide"
-                type="button"
-                onClick={() => { setError(null); setConfirmCancel(true); }}
-                disabled={busy}
-              >
-                Вимкнути автосписання
-              </button>
-            )}
-            {soon && sub.slug && (
-              <Link className="btn sm btn-wide" href={`/buy/${sub.slug}`}>
-                Продовжити<span className="dot"><Arrow /></span>
-              </Link>
-            )}
-          </div>
-
-          {error && (
-            <div className="sub-alert" role="alert">
-              <b>Не вдалось</b>
-              <p>{error}</p>
-            </div>
-          )}
-
-          {code && (
-            <div className="code-box">
-              <b>{code}</b>
-              <small>{codeLeft} с</small>
-            </div>
-          )}
-
-          {openCreds && (
-            <div className="creds">
-              {sub.login && <div className="row"><span>Логін</span><b>{sub.login}</b></div>}
-              {sub.password && <div className="row"><span>Пароль</span><b>{sub.password}</b></div>}
-              <p className="tip">
-                {sub.password
-                  ? "Не передавай дані третім особам. Якщо сервіс просить код — натисни «Код 2FA»."
-                  : "Доступ після оплати надсилає "}
-                {!sub.password && (
-                  <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджер @kinomanage</a>
-                )}
-                {!sub.password && "."}
-                {" "}Пише «сервіс недоступний у вашому регіоні»? Вмикай{" "}
-                <a href="https://t.me/FlixVPNBot">FlixVPN</a>.
-              </p>
-            </div>
-          )}
+          <div className="sub-stat">
+            <small>Залишилось</small>
+            <b>{left > 0 ? `${left} ${plural(left, "день", "дні", "днів")}` : "сьогодні"}</b>
           </div>
         </div>
+
+        <div className="track"><i className={soon ? "warn" : ""} style={{ width: `${pct}%` }} /></div>
+
+        {sub.recurring && charges.length > 0 && (
+          <div className="sub-history-wrap">
+            <button type="button" className="sub-history-toggle" onClick={() => setOpenHistory(!openHistory)}>
+              Історія списань ({charges.length})
+              <span className={`chev${openHistory ? " open" : ""}`}><Chevron /></span>
+            </button>
+            {openHistory && <PaymentHistory items={charges} title="" limit={20} compact />}
+          </div>
+        )}
+
+        <div className="acts">
+          <a className="btn sm soft" href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">
+            Менеджер
+          </a>
+          {(sub.login || sub.password) && (
+            <button className="btn sm soft" type="button" onClick={() => setOpenCreds(!openCreds)}>
+              {openCreds ? "Сховати дані" : "Дані входу"}
+              <span className="dot"><Chevron /></span>
+            </button>
+          )}
+          {sub.hasTotp && (
+            <button className="btn sm soft" type="button" onClick={fetchCode} disabled={codeBusy}>
+              {codeBusy ? "Код…" : "Код 2FA"}
+            </button>
+          )}
+          {billingOn && (
+            <button
+              className="btn sm soft btn-wide"
+              type="button"
+              onClick={() => { setError(null); setConfirmCancel(true); }}
+              disabled={busy}
+            >
+              Вимкнути автосписання
+            </button>
+          )}
+          {soon && sub.slug && (
+            <Link className="btn sm btn-wide" href={`/buy/${sub.slug}`}>
+              Продовжити<span className="dot"><Arrow /></span>
+            </Link>
+          )}
+        </div>
+
+        {error && (
+          <div className="sub-alert" role="alert">
+            <b>Не вдалось</b>
+            <p>{error}</p>
+          </div>
+        )}
+
+        {code && (
+          <div className="code-box">
+            <b>{code}</b>
+            <small>{codeLeft} с</small>
+          </div>
+        )}
+
+        {openCreds && (
+          <div className="creds">
+            {sub.login && <div className="row"><span>Логін</span><b>{sub.login}</b></div>}
+            {sub.password && <div className="row"><span>Пароль</span><b>{sub.password}</b></div>}
+            <p className="tip">
+              {sub.password
+                ? "Не передавай дані третім особам. Якщо сервіс просить код — натисни «Код 2FA»."
+                : "Доступ після оплати надсилає "}
+              {!sub.password && (
+                <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджер @kinomanage</a>
+              )}
+              {!sub.password && "."}
+              {" "}Пише «сервіс недоступний у вашому регіоні»? Вмикай{" "}
+              <a href="https://t.me/FlixVPNBot">FlixVPN</a>.
+            </p>
+          </div>
+        )}
       </article>
 
       <ConfirmDialog
