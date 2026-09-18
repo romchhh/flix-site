@@ -10,15 +10,19 @@ import { Faq } from "@/components/Faq";
 import { JsonLd } from "@/components/JsonLd";
 import { parseFaq } from "@/lib/faq";
 import { letterOf, badgeClass, badgeLabel } from "@/lib/display";
-import { breadcrumbJsonLd, faqJsonLd, pageMetadata, productJsonLd, truncate } from "@/lib/seo";
+import { breadcrumbJsonLd, faqJsonLd, pageMetadata, productJsonLd, productSeo } from "@/lib/seo";
 import { BuyForm } from "./BuyForm";
 import { backendJson } from "@/lib/backend";
-import type { CatalogProduct } from "@/lib/types";
+import type { CatalogCategory, CatalogProduct } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+async function loadCatalog() {
+  return backendJson<{ products: CatalogProduct[]; categories: CatalogCategory[] }>("/api/catalog");
+}
+
 async function loadProduct(slug: string) {
-  const data = await backendJson<{ products: CatalogProduct[] }>("/api/catalog");
+  const data = await loadCatalog();
   return data?.products.find((p) => p.slug === slug || p.id === slug) ?? null;
 }
 
@@ -33,22 +37,26 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
       noIndex: true,
     });
   }
-  const desc =
-    truncate(p.description || `${p.name} — купити підписку на flixмаркет. Оплата карткою, доступ у кабінеті.`, 160);
+  const seo = productSeo(p);
   return pageMetadata({
-    title: p.name,
-    description: desc,
+    title: seo.title,
+    description: seo.description,
+    keywords: seo.keywords,
     path: `/buy/${p.slug}`,
-    image: p.photoUrl || undefined,
+    image: seo.image || undefined,
   });
 }
 
 export default async function BuyPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const data = await backendJson<{ products: CatalogProduct[] }>("/api/catalog");
+  const data = await loadCatalog();
   const products = data?.products ?? [];
+  const categories = data?.categories ?? [];
   const product = products.find((p) => p.slug === slug || p.id === slug);
   if (!product || !product.visible) notFound();
+
+  const category = categories.find((c) => c.id === product.categoryId);
+  const categoryPath = category ? `/catalog?cat=${encodeURIComponent(category.slug)}` : "/catalog";
 
   const me = await currentUser();
   const options = plans(product);
@@ -62,6 +70,7 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
           breadcrumbJsonLd([
             { name: "Головна", path: "/" },
             { name: "Каталог", path: "/catalog" },
+            ...(category ? [{ name: category.name, path: categoryPath }] : []),
             { name: product.name, path: `/buy/${product.slug}` },
           ]),
           productJsonLd(product),
@@ -71,7 +80,11 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
       <SiteHeader />
       <div className="wrap">
       <p className="crumbs">
-        <Link href="/catalog">Каталог</Link> → {product.name}
+        <Link href="/catalog">Каталог</Link>
+        {category && (
+          <> → <Link href={categoryPath}>{category.name}</Link></>
+        )}
+        {" → "}{product.name}
       </p>
 
       <div className="buy-grid">

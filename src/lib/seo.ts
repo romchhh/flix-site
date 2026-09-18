@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import type { CatalogProduct } from "./types";
+import type { CatalogCategory, CatalogProduct } from "./types";
 import { plans } from "./pricing";
 
 export const SITE_NAME = "flixмаркет";
@@ -32,6 +32,7 @@ type PageMetaOpts = {
   description?: string;
   path?: string;
   image?: string | null;
+  keywords?: string[];
   noIndex?: boolean;
   type?: "website" | "article";
 };
@@ -41,6 +42,7 @@ export function pageMetadata({
   description = SITE_DESCRIPTION,
   path = "/",
   image,
+  keywords,
   noIndex = false,
   type = "website",
 }: PageMetaOpts = {}): Metadata {
@@ -55,6 +57,7 @@ export function pageMetadata({
   return {
     title: short || { absolute: fullTitle },
     description: desc,
+    ...(keywords?.length ? { keywords } : {}),
     alternates: { canonical: url },
     robots: noIndex
       ? { index: false, follow: false, googleBot: { index: false, follow: false } }
@@ -260,5 +263,85 @@ export function itemListJsonLd(
       url: absUrl(`/buy/${p.slug}`),
       name: p.name,
     })),
+  };
+}
+
+function productCountLabel(count: number): string {
+  if (count === 1) return "1 підписка";
+  if (count < 5) return `${count} підписки`;
+  return `${count} підписок`;
+}
+
+export function categorySeo(category: CatalogCategory, products: CatalogProduct[]) {
+  const names = products.map((p) => p.name);
+  const sample = names.slice(0, 4).join(", ");
+  const extra = names.length > 4 ? " та інші" : "";
+  const description = products.length
+    ? `Купити ${category.name.toLowerCase()} у flixмаркет: ${sample}${extra}. ${productCountLabel(products.length)}. Оплата карткою Monobank, доступ у кабінеті.`
+    : `Підписки ${category.name} у flixмаркет. Оплата карткою, доступ у кабінеті.`;
+  const keywords = [
+    category.name,
+    `купити ${category.name}`,
+    "підписка",
+    "flixмаркет",
+    "flixmarket",
+    ...names,
+  ];
+
+  return {
+    title: `${category.name} — каталог`,
+    description: truncate(description, 160),
+    keywords: [...new Set(keywords.map((k) => k.trim()).filter(Boolean))],
+    image: category.photoUrl,
+  };
+}
+
+export function productSeo(product: CatalogProduct) {
+  const pricePart = product.price > 0 ? ` від ${product.price} ₴` : "";
+  const categoryPart = product.categoryName ? ` Категорія: ${product.categoryName}.` : "";
+  const description = truncate(
+    product.description ||
+      `Купити ${product.name}${pricePart} на flixмаркет.${categoryPart} Оплата карткою Monobank, доступ у кабінеті за кілька хвилин.`,
+    160,
+  );
+  const keywords = [
+    product.name,
+    `купити ${product.name}`,
+    product.categoryName || "",
+    "підписка",
+    "flixмаркет",
+    "flixmarket",
+    product.recurring ? "щомісячна підписка" : "разова оплата",
+    "Monobank",
+  ];
+
+  return {
+    title: product.name,
+    description,
+    keywords: [...new Set(keywords.map((k) => k.trim()).filter(Boolean))],
+    image: product.photoUrl,
+  };
+}
+
+export function collectionPageJsonLd(
+  category: CatalogCategory,
+  products: CatalogProduct[],
+  path: string,
+) {
+  const list = itemListJsonLd(products, {
+    name: `Підписки ${category.name}`,
+    path,
+  });
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: `${category.name} — каталог`,
+    description: truncate(`Підписки ${category.name} у flixмаркет`, 300),
+    url: absUrl(path),
+    inLanguage: "uk-UA",
+    isPartOf: { "@type": "WebSite", name: SITE_NAME, url: siteUrl() },
+    ...(category.photoUrl ? { image: absUrl(category.photoUrl) } : {}),
+    mainEntity: list,
   };
 }

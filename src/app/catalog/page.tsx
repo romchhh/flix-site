@@ -6,28 +6,48 @@ import { ProductGrid } from "@/components/ProductGrid";
 import { Arrow, TgIcon } from "@/components/Logo";
 import { JsonLd } from "@/components/JsonLd";
 import { backendJson } from "@/lib/backend";
-import { breadcrumbJsonLd, itemListJsonLd, pageMetadata } from "@/lib/seo";
+import { breadcrumbJsonLd, categorySeo, collectionPageJsonLd, itemListJsonLd, pageMetadata, truncate } from "@/lib/seo";
 import type { CatalogCategory, CatalogProduct } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 type Props = { searchParams: Promise<{ cat?: string }> };
 
+function categoryProducts(
+  all: CatalogProduct[],
+  categories: CatalogCategory[],
+  cat?: string,
+) {
+  if (!cat) return all;
+  const current = categories.find((c) => c.slug === cat || c.id === cat);
+  return all.filter((p) => p.categoryId === cat || current?.id === p.categoryId);
+}
+
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const { cat } = await searchParams;
   const data = await backendJson<{ products: CatalogProduct[]; categories: CatalogCategory[] }>("/api/catalog");
   const categories = data?.categories ?? [];
+  const all = data?.products ?? [];
   const current = cat ? categories.find((c) => c.slug === cat || c.id === cat) : null;
   if (current) {
+    const products = categoryProducts(all, categories, cat);
+    const seo = categorySeo(current, products);
     return pageMetadata({
-      title: `${current.name} — каталог`,
-      description: `Підписки ${current.name} у flixмаркет. Оплата карткою, доступ у кабінеті.`,
-      path: `/catalog?cat=${encodeURIComponent(cat!)}`,
+      title: seo.title,
+      description: seo.description,
+      keywords: seo.keywords,
+      image: seo.image,
+      path: `/catalog?cat=${encodeURIComponent(current.slug)}`,
     });
   }
+  const names = all.map((p) => p.name).slice(0, 6).join(", ");
   return pageMetadata({
     title: "Каталог підписок",
-    description: "Netflix, ChatGPT, Claude, HBO Max та інші підписки. Оплата карткою, доступ у кабінеті.",
+    description: truncate(
+      `Netflix, ChatGPT, Claude, HBO Max та інші підписки: ${names}. Оплата карткою Monobank, доступ у кабінеті.`,
+      160,
+    ),
+    keywords: ["каталог підписок", "flixмаркет", "купити підписку", ...all.map((p) => p.name)],
     path: "/catalog",
   });
 }
@@ -37,24 +57,26 @@ export default async function CatalogPage({ searchParams }: Props) {
   const data = await backendJson<{ products: CatalogProduct[]; categories: CatalogCategory[] }>("/api/catalog");
   const categories = data?.categories ?? [];
   const all = data?.products ?? [];
-  const products = cat ? all.filter((p) => p.categoryId === cat || categories.find((c) => c.slug === cat)?.id === p.categoryId) : all;
   const current = cat ? categories.find((c) => c.slug === cat || c.id === cat) : null;
-  const listPath = cat ? `/catalog?cat=${encodeURIComponent(cat)}` : "/catalog";
+  const products = categoryProducts(all, categories, cat);
+  const listPath = current ? `/catalog?cat=${encodeURIComponent(current.slug)}` : "/catalog";
+
+  const jsonLd = [
+    breadcrumbJsonLd([
+      { name: "Головна", path: "/" },
+      { name: "Каталог", path: "/catalog" },
+      ...(current ? [{ name: current.name, path: listPath }] : []),
+    ]),
+    itemListJsonLd(products, {
+      name: current ? `Підписки ${current.name}` : "Каталог підписок flixмаркет",
+      path: listPath,
+    }),
+    ...(current ? [collectionPageJsonLd(current, products, listPath)] : []),
+  ];
 
   return (
     <>
-      <JsonLd
-        data={[
-          breadcrumbJsonLd([
-            { name: "Головна", path: "/" },
-            { name: current?.name || "Каталог", path: listPath },
-          ]),
-          itemListJsonLd(products, {
-            name: current ? `Підписки ${current.name}` : "Каталог підписок flixмаркет",
-            path: listPath,
-          }),
-        ]}
-      />
+      <JsonLd data={jsonLd} />
       <SiteHeader />
       <div className="wrap">
       <section style={{ paddingTop: 44, paddingBottom: 30 }}>
