@@ -35,6 +35,7 @@ from .settings import (
     ADMIN_EMAILS,
     ADMIN_TELEGRAM_IDS,
     APP_URL,
+    BOT_API_URL,
     COOKIE_DOMAIN,
     COOKIE_NAME,
     COOKIE_SECURE,
@@ -68,7 +69,15 @@ _hits: dict[str, tuple[int, float]] = {}
 async def _startup():
     init_db()
     _warn_if_telegram_token_mismatch()
-    asyncio.create_task(payments_svc.sync_pending_to_bot())
+    asyncio.create_task(payments_svc.sync_loop())
+
+
+async def _bot_api_ping() -> bool:
+    try:
+        await bot_client.bot_request("GET", "/api/v1/health")
+        return True
+    except Exception:
+        return False
 
 
 def _warn_if_telegram_token_mismatch():
@@ -423,10 +432,30 @@ async def complete_telegram_session(
 @app.get("/api/health")
 async def health():
     token = normalize_bot_token(TELEGRAM_BOT_TOKEN)
+    bot_ok = await _bot_api_ping()
     return {
         "ok": True,
         "telegramToken": bool(token),
-        "botApi": bool(BOT_API_URL and BOT_API_KEY),
+        "botApi": bot_ok,
+        "botApiUrl": BOT_API_URL,
+        "unsyncedPayments": payments_svc.unsynced_count(),
+    }
+
+
+@app.post("/api/admin/sync-payments")
+async def admin_sync_payments(request: Request):
+    uid = current_user_id(request)
+    me = get_user(uid) if uid else None
+    if not me or not me["is_admin"]:
+        return json_error("Forbidden", 403)
+    before = payments_svc.unsynced_count()
+    synced = await payments_svc.sync_pending_to_bot()
+    return {
+        "ok": True,
+        "before": before,
+        "synced": synced,
+        "remaining": payments_svc.unsynced_count(),
+        "botApi": await _bot_api_ping(),
     }
 
 
