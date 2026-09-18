@@ -75,7 +75,7 @@ export default async function Cabinet({ searchParams }:
   return (
     <>
       <SiteHeader />
-      <div className="wrap">
+      <div className="wrap-narrow">
       <h1 className="h-sm" style={{ margin: "28px 0 22px" }}>Мої<br /><em>підписки</em></h1>
 
       {me.telegramId && (
@@ -157,37 +157,42 @@ export default async function Cabinet({ searchParams }:
       ) : (
         <>
           {active.length > 0 && (
-            <div className="cards catalog cab-grid">
-              {active.map((s) => (
-                <SubCard key={s.id} sub={{
-                  id: s.id,
-                  name: s.name,
-                  icon: s.icon,
-                  color: s.color,
-                  slug: s.slug,
-                  productId: s.productId,
-                  price: s.price,
-                  months: s.months,
-                  profileName: s.kind === "recurring"
-                    ? (billingOff(s) ? "без автосписання" : "автосписання")
-                    : null,
-                  pin: null,
-                  login: s.login ?? null,
-                  password: s.password ?? null,
-                  hasTotp: Boolean(s.hasTotp),
-                  startsAt: s.startsAt,
-                  expiresAt: s.expiresAt,
-                  source: s.source || "site",
-                  recurring: s.kind === "recurring",
-                  billingActive: s.kind === "recurring" && !billingOff(s),
-                  nextPaymentAt: s.nextPaymentAt,
-                  photoUrl: s.photoUrl,
-                  maskedCard: s.maskedCard,
-                  cardType: s.cardType,
-                  charges: chargesForSub(payments, s.id),
-                }} />
-              ))}
-            </div>
+            <section className="subs-panel">
+              <header className="subs-panel-head">
+                <h2>Мої підписки</h2>
+                {me.telegramName && <span>@{me.telegramName}</span>}
+              </header>
+              <div className="subs-panel-list">
+                {active.map((s) => (
+                  <SubCard key={s.id} sub={{
+                    id: s.id,
+                    name: s.name,
+                    icon: s.icon,
+                    color: s.color,
+                    slug: s.slug,
+                    productId: s.productId,
+                    price: s.price,
+                    months: s.months,
+                    profileName: null,
+                    pin: null,
+                    login: s.login ?? null,
+                    password: s.password ?? null,
+                    hasTotp: Boolean(s.hasTotp),
+                    startsAt: s.startsAt,
+                    expiresAt: s.expiresAt,
+                    source: s.source || "site",
+                    recurring: s.kind === "recurring",
+                    billingActive: s.kind === "recurring" && !billingOff(s),
+                    nextPaymentAt: s.nextPaymentAt,
+                    photoUrl: s.photoUrl,
+                    maskedCard: s.maskedCard,
+                    cardType: s.cardType,
+                    charges: chargesForSub(payments, s.id),
+                  }} />
+                ))}
+              </div>
+              <p className="subs-panel-note">Коди підтвердження — кнопкою «ще», тут же</p>
+            </section>
           )}
 
           {payments.length > 0 && (
@@ -208,48 +213,54 @@ export default async function Cabinet({ searchParams }:
           )}
 
           {past.length > 0 && (
-            <>
-              <h2 style={{ fontSize: 22, margin: active.length ? "36px 0 14px" : "8px 0 14px" }}>Архів</h2>
-              <div className="cards catalog cab-grid">
+            <section className="subs-panel subs-panel-arch" style={{ marginTop: active.length || payments.length ? 28 : 0 }}>
+              <header className="subs-panel-head">
+                <h2>Архів</h2>
+                <span>{past.length}</span>
+              </header>
+              <div className="subs-panel-list">
                 {past.map((s) => (
-                  <article className="card sub-card sub-arch" key={s.id}>
-                    <SubPhoto
-                      name={s.name}
-                      icon={s.icon}
-                      color={s.color}
-                      photoUrl={s.photoUrl}
-                      productId={s.productId}
-                      size={48}
-                      badge={
-                        <div className="sub-photo-badges">
-                          <span className="badge b-off">архів</span>
+                  <article className="sub-row sub-row-arch" key={s.id}>
+                    <div className="sub-row-main">
+                      <SubPhoto
+                        name={s.name}
+                        icon={s.icon}
+                        color={s.color}
+                        photoUrl={s.photoUrl}
+                        productId={s.productId}
+                        size={28}
+                        variant="row"
+                      />
+                      <div className="sub-row-body">
+                        <div className="sub-row-top">
+                          <div className="sub-row-text">
+                            <h3>{s.name}</h3>
+                            <p>
+                              {s.expiresAt
+                                ? `діяла до ${new Date(s.expiresAt).toLocaleDateString("uk-UA")}`
+                                : "завершена"}
+                              {s.price != null ? ` · ${s.price}₴` : ""}
+                            </p>
+                          </div>
+                          <div className="sub-row-side">
+                            <span className="sub-row-days off">архів</span>
+                            {s.slug ? (
+                              <Link className="sub-row-more" href={`/buy/${s.slug}`}>
+                                знову
+                              </Link>
+                            ) : (
+                              <Link className="sub-row-more" href="/catalog">
+                                каталог
+                              </Link>
+                            )}
+                          </div>
                         </div>
-                      }
-                    />
-                    <div className="brand">
-                      <h3>{s.name}</h3>
-                    </div>
-                    <p className="sub-price-line">
-                      {s.expiresAt
-                        ? `діяла до ${new Date(s.expiresAt).toLocaleDateString("uk-UA")}`
-                        : "завершена"}
-                      {s.price != null ? ` · ${s.price}₴` : ""}
-                    </p>
-                    <div className="acts">
-                      {s.slug ? (
-                        <Link className="btn sm btn-wide" href={`/buy/${s.slug}`}>
-                          Купити знову<span className="dot"><Arrow /></span>
-                        </Link>
-                      ) : (
-                        <Link className="btn sm btn-wide" href="/catalog">
-                          До каталогу<span className="dot"><Arrow /></span>
-                        </Link>
-                      )}
+                      </div>
                     </div>
                   </article>
                 ))}
               </div>
-            </>
+            </section>
           )}
         </>
       )}

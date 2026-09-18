@@ -11,6 +11,7 @@ export function SubPhoto({
   productId,
   size = 48,
   badge,
+  variant = "card",
 }: {
   name: string;
   icon: string;
@@ -19,10 +20,25 @@ export function SubPhoto({
   productId?: string;
   size?: number;
   badge?: ReactNode;
+  variant?: "card" | "row";
 }) {
   const [failed, setFailed] = useState(false);
   const src = productPhotoUrl(photoUrl, productId);
   const show = Boolean(src) && !failed;
+
+  if (variant === "row") {
+    if (show) {
+      return <img className="sub-row-thumb" src={src!} alt="" onError={() => setFailed(true)} />;
+    }
+    return (
+      <div
+        className="sub-row-thumb sub-row-thumb-fallback"
+        style={{ background: `linear-gradient(145deg, ${color}28 0%, ${color}50 100%)` }}
+      >
+        <ServiceIcon slug={icon} color={color} letter={name.charAt(0)} size={size} />
+      </div>
+    );
+  }
 
   return (
     <div className="cat-card-photo sub-card-photo">
