@@ -84,6 +84,26 @@ def init_db():
                 expires_at TEXT NOT NULL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS site_payments (
+                payment_id TEXT PRIMARY KEY,
+                invoice_id TEXT UNIQUE NOT NULL,
+                site_user_id TEXT NOT NULL,
+                bot_user_id INTEGER NOT NULL,
+                telegram_id INTEGER,
+                product_id INTEGER NOT NULL,
+                months INTEGER NOT NULL,
+                amount REAL NOT NULL,
+                payment_type TEXT NOT NULL,
+                wallet_id TEXT,
+                username TEXT,
+                status TEXT DEFAULT 'pending',
+                mono_status TEXT,
+                synced_to_bot INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_site_payments_invoice ON site_payments(invoice_id);
+            CREATE INDEX IF NOT EXISTS idx_site_payments_sync ON site_payments(synced_to_bot);
             """
         )
         cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}

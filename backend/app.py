@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
-from . import bot_client, catalog_svc, mail, monopay, tg_photo
+from . import bot_client, catalog_svc, mail, monopay, payments_svc, tg_photo
 from .bot_client import BotAPIError
 from .db import (
     confirm_telegram_login,
@@ -65,9 +65,10 @@ _hits: dict[str, tuple[int, float]] = {}
 
 
 @app.on_event("startup")
-def _startup():
+async def _startup():
     init_db()
     _warn_if_telegram_token_mismatch()
+    asyncio.create_task(payments_svc.sync_pending_to_bot())
 
 
 def _warn_if_telegram_token_mismatch():
@@ -859,8 +860,11 @@ async def checkout(request: Request):
     try:
         bot_uid = await resolve_bot_user_id(me, uid)
         if not bot_uid:
-            created_user = await bot_client.ensure_user(telegram_id=int(telegram_id), username=username)
-            bot_uid = int(created_user.get("userId") or telegram_id)
+            try:
+                created_user = await bot_client.ensure_user(telegram_id=int(telegram_id), username=username)
+                bot_uid = int(created_user.get("userId") or telegram_id)
+            except BotAPIError:
+                bot_uid = int(telegram_id)
             with db() as conn:
                 conn.execute("UPDATE users SET bot_user_id = ? WHERE id = ?", (bot_uid, uid))
 
@@ -875,31 +879,26 @@ async def checkout(request: Request):
             subscription=subscription,
             payment_id=payment_ref,
         )
-        last_err: BotAPIError | None = None
-        for attempt in range(3):
-            try:
-                await bot_client.record_payment(
-                    user_id=bot_uid,
-                    product_id=product_id_int,
-                    months=months,
-                    amount=amount_uah,
-                    invoice_id=created["invoice_id"],
-                    payment_id=created["payment_id"],
-                    payment_type=created["payment_type"],
-                    wallet_id=created.get("wallet_id"),
-                    username=username,
-                )
-                last_err = None
-                break
-            except BotAPIError as e:
-                last_err = e
-                if attempt < 2:
-                    await asyncio.sleep(0.4 * (attempt + 1))
-        if last_err:
-            raise last_err
+        payments_svc.save_site_payment(
+            payment_id=created["payment_id"],
+            invoice_id=created["invoice_id"],
+            site_user_id=uid,
+            bot_user_id=bot_uid,
+            telegram_id=int(telegram_id),
+            product_id=product_id_int,
+            months=months,
+            amount=amount_uah,
+            payment_type=created["payment_type"],
+            wallet_id=created.get("wallet_id"),
+            username=username,
+        )
+        synced = await payments_svc.sync_payment_to_bot_by_ref(created["invoice_id"])
+        if not synced:
+            log.warning(
+                "checkout: bot API offline, payment %s saved locally — sync later",
+                created["invoice_id"],
+            )
     except monopay.MonoError as e:
-        return json_error(e.message, min(e.status, 502))
-    except BotAPIError as e:
         return json_error(e.message, min(e.status, 502))
 
     return JSONResponse({
@@ -922,11 +921,7 @@ async def mono_webhook(request: Request):
     invoice_id = str(payload.get("invoiceId") or payload.get("invoice_id") or "").strip()
     status = str(payload.get("status") or "").strip().lower()
     log.info("mono webhook invoice=%s status=%s", invoice_id, status)
-    if invoice_id:
-        try:
-            await bot_client.forward_mono_webhook(payload)
-        except BotAPIError as e:
-            log.warning("mono webhook forward: %s", e)
+    await payments_svc.handle_mono_webhook(payload)
     return {"ok": True}
 
 
@@ -959,7 +954,7 @@ async def cabinet(request: Request, order: str | None = None):
                 try:
                     pending = await bot_client.get_payment(order)
                 except BotAPIError:
-                    pending = None
+                    pending = payments_svc.payment_public(payments_svc.get_site_payment(order))
         except BotAPIError as e:
             log.warning("cabinet bot: %s", e)
             cached = get_bot_sub_cache(int(me["telegram_id"] or bot_id))
