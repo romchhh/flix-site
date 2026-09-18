@@ -1,7 +1,16 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TgIcon } from "./Logo";
+
+/** Прибирає зламаний офіційний віджет (Bot domain invalid) — вхід лише через бота. */
+function removeTelegramWidget() {
+  document
+    .querySelectorAll(
+      'script[src*="telegram-widget"], iframe[src*="oauth.telegram.org"], .tgme_widget_login, [id^="telegram-login"]',
+    )
+    .forEach((el) => el.remove());
+}
 
 export function openTelegram(url: string, botName: string) {
   const start = (() => {
@@ -25,10 +34,7 @@ export function openTelegram(url: string, botName: string) {
   }, 400);
 }
 
-/**
- * Вхід через бота (t.me/...?start=payload).
- * Офіційний віджет — лише на постійному HTTPS-домені з /setdomain у BotFather.
- */
+/** Вхід через бота (t.me/...?start=payload), без офіційного Login Widget. */
 export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
   { botName: string; label: string; onDone?: (r: { imported?: number; linked?: boolean }) => void; next?: string }) {
   const router = useRouter();
@@ -42,6 +48,13 @@ export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
     if (onDone) onDone(data);
     else { router.push(next); router.refresh(); }
   }
+
+  useEffect(() => {
+    removeTelegramWidget();
+    const observer = new MutationObserver(removeTelegramWidget);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
 
   async function viaBot() {
     setBusy(true);

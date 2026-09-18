@@ -183,6 +183,10 @@ input[aria-invalid="true"]{border-color:var(--red);background:#FDF3F3}
 .foot-note{text-align:center;font-size:14px;font-weight:600;color:var(--muted);margin-top:20px;line-height:1.7}
 .terms{font-size:12px;color:#8A92A8;font-weight:600;text-align:center;margin-top:14px;line-height:1.5}
 
+/* Офіційний Telegram Login Widget не використовуємо — ховаємо "Bot domain invalid" */
+iframe[src*="oauth.telegram.org"],.tgme_widget_login,.tgme_widget_login_error,[id^="telegram-login"]{
+  display:none!important;height:0!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important
+}
 .tg-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:12px;background:var(--ink);
   color:#fff;border:0;cursor:pointer;font-family:inherit;font-weight:800;font-size:16px;padding:16px;
   border-radius:999px;transition:transform .18s,background .18s}
