@@ -14,7 +14,11 @@ BOT_API_URL = os.getenv("BOT_API_URL", "http://127.0.0.1:8088").rstrip("/")
 BOT_API_KEY = os.getenv("BOT_API_KEY", "")
 MINIAPP_API_URL = os.getenv("MINIAPP_API_URL", "https://market.easyplayy.com").rstrip("/")
 MINIAPP_API_KEY = os.getenv("MINIAPP_API_KEY", "") or BOT_API_KEY
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+def _norm_token(raw: str) -> str:
+    return (raw or "").strip().strip('"').strip("'")
+
+
+TELEGRAM_BOT_TOKEN = _norm_token(os.getenv("TELEGRAM_BOT_TOKEN", ""))
 TELEGRAM_BOT_NAME = os.getenv("TELEGRAM_BOT_NAME", "FlixMarketBot")
 ADMIN_EMAILS = [s.strip().lower() for s in os.getenv("ADMIN_EMAILS", "").split(",") if s.strip()]
 ADMIN_TELEGRAM_IDS = [s.strip() for s in os.getenv("ADMIN_TELEGRAM_IDS", "").split(",") if s.strip()]

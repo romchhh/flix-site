@@ -45,6 +45,7 @@ from .settings import (
     TELEGRAM_BOT_TOKEN,
     resolve_request_origin,
 )
+from .telegram_auth import normalize_bot_token, verify_telegram_widget
 
 log = logging.getLogger("flix.site")
 logging.basicConfig(level=logging.INFO)
@@ -69,7 +70,7 @@ def _startup():
 
 
 def _warn_if_telegram_token_mismatch():
-    token = (TELEGRAM_BOT_TOKEN or "").strip().strip('"')
+    token = normalize_bot_token(TELEGRAM_BOT_TOKEN)
     if not token:
         log.error("TELEGRAM_BOT_TOKEN порожній — вхід через Telegram не запрацює")
         return
@@ -264,41 +265,40 @@ async def ensure_bot_user(conn, user_row) -> int | None:
     return int(uid)
 
 
-TG_HASH_FIELDS = (
-    "id", "auth_date", "login_token", "username", "first_name", "last_name", "photo_url",
-)
-
-
-def verify_telegram_widget(data: dict) -> dict | None:
-    token = (TELEGRAM_BOT_TOKEN or "").strip().strip('"')
-    given = str(data.get("hash") or "").strip().lower()
-    if not given or not token:
-        return None
-    rest = {
-        k: str(v)
-        for k, v in data.items()
-        if k in TG_HASH_FIELDS and v is not None and str(v) != ""
-    }
-    dcs = "\n".join(f"{k}={rest[k]}" for k in sorted(rest))
-    secret = hashlib.sha256(token.encode()).digest()
-    sign = hmac.new(secret, dcs.encode(), hashlib.sha256).hexdigest()
-    try:
-        if not hmac.compare_digest(sign, given):
-            log.warning("telegram hash mismatch for fields %s", ",".join(sorted(rest)))
-            return None
-    except Exception:
+async def _telegram_from_bot_login(params: dict) -> tuple[dict, str] | None:
+    """Якщо підпис не зійшовся, але бот уже підтвердив login_token — довіряємо API бота."""
+    login_token = str(params.get("login_token") or "").strip()
+    tg_id_raw = str(params.get("id") or "").strip()
+    if not login_token or not tg_id_raw.isdigit():
         return None
     try:
-        if abs(time.time() - float(rest.get("auth_date") or 0)) > 86400:
-            return None
-    except ValueError:
+        data = await bot_client.web_login_status(login_token)
+    except BotAPIError as e:
+        log.info("telegram login fallback via bot API skipped: %s", e)
         return None
-    return {
-        "id": int(rest["id"]),
-        "username": rest.get("username"),
-        "first_name": rest.get("first_name"),
-        "photo_url": rest.get("photo_url"),
-    }
+    if data.get("status") != "confirmed":
+        return None
+    confirmed_id = int(data.get("telegramId") or 0)
+    if confirmed_id != int(tg_id_raw):
+        log.warning(
+            "telegram login token %s confirmed for %s, callback id=%s",
+            login_token, confirmed_id, tg_id_raw,
+        )
+        return None
+    username = (data.get("username") or str(confirmed_id)).lstrip("@")
+    confirm_telegram_login(login_token, confirmed_id, username)
+    return {"id": confirmed_id, "username": username}, username
+
+
+async def _telegram_from_signed(params: dict) -> tuple[dict, str] | None:
+    tg = verify_telegram_widget(params)
+    if not tg:
+        return await _telegram_from_bot_login(params)
+    username = (tg.get("username") or tg.get("first_name") or str(tg["id"])).lstrip("@")
+    login_token = str(params.get("login_token") or "").strip()
+    if login_token:
+        confirm_telegram_login(login_token, tg["id"], username)
+    return tg, username
 
 
 async def complete_telegram_session(
@@ -616,28 +616,19 @@ async def telegram_start(request: Request):
     return {"ok": True, "token": token, "url": f"https://t.me/{bot}?start={payload}", "origin": origin}
 
 
-def _telegram_from_signed(params: dict) -> tuple[dict, str] | None:
-    tg = verify_telegram_widget(params)
-    if not tg:
-        return None
-    username = (tg.get("username") or tg.get("first_name") or str(tg["id"])).lstrip("@")
-    login_token = str(params.get("login_token") or "").strip()
-    if login_token:
-        confirm_telegram_login(login_token, tg["id"], username)
-    return tg, username
-
-
 @app.post("/api/auth/telegram/bot-confirm")
 async def telegram_bot_confirm(request: Request):
     try:
         body = await request.json()
     except Exception:
         return json_error("Немає даних підтвердження")
-    parsed = _telegram_from_signed({k: str(v) for k, v in body.items() if v is not None})
+    flat = {k: str(v) for k, v in body.items() if v is not None and not isinstance(v, (dict, list))}
+    parsed = await _telegram_from_signed(flat)
     if not parsed:
         return json_error(
             "Підпис Telegram не пройшов перевірку. "
-            "TELEGRAM_BOT_TOKEN на сайті має бути тим самим, що BOT_TOKEN у бота на сервері.",
+            "Перевір TELEGRAM_BOT_TOKEN на сайті та BOT_TOKEN у бота (без лапок і пробілів), "
+            "або натисни «Увійти через Telegram» на сайті ще раз.",
             401,
         )
     tg, _username = parsed
@@ -650,11 +641,12 @@ async def telegram_bot_confirm(request: Request):
 @app.get("/api/auth/telegram/callback")
 async def telegram_callback(request: Request):
     params = {k: str(v) for k, v in request.query_params.items() if v is not None}
-    parsed = _telegram_from_signed(params)
+    parsed = await _telegram_from_signed(params)
     if not parsed:
         return json_error(
             "Підпис Telegram не пройшов перевірку. "
-            "TELEGRAM_BOT_TOKEN на сайті має бути тим самим, що BOT_TOKEN у бота на сервері.",
+            "Повернись на вкладку з сайтом — кабінет має відкритись сам. "
+            "Якщо ні — натисни «Увійти через Telegram» ще раз.",
         )
     tg, username = parsed
     photo = (tg.get("photo_url") or "").strip() or None

@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 
 from .settings import DB_PATH, TELEGRAM_BOT_TOKEN
+from .telegram_auth import normalize_bot_token
 
 log = logging.getLogger("flix.site")
 AVATAR_DIR = Path(DB_PATH).parent / "avatars"
