@@ -5,14 +5,14 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
 if [[ ! -d .venv ]]; then
-  echo "Немає .venv — створюю..."
-  python3 -m venv .venv
+  echo "Немає .myenv — створюю..."
+  python3 -m venv .myenv
   # shellcheck disable=SC1091
-  source .venv/bin/activate
+  source .myenv/bin/activate
   pip install -r backend/requirements.txt
 else
   # shellcheck disable=SC1091
-  source .venv/bin/activate
+  source .myenv/bin/activate
 fi
 
 HOST="${HOST:-127.0.0.1}"
