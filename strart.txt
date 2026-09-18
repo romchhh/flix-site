@@ -1,0 +1,7 @@
+cd "/Users/nowayrm/Desktop/Projects/Sites/In Progress/flix/flixmarket-code-site"
+source .venv/bin/activate
+uvicorn backend.app:app --reload --port 8000
+
+
+cd "/Users/nowayrm/Desktop/Projects/Sites/In Progress/flix/flixmarket-code-site"
+npm run dev

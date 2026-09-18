@@ -1,0 +1,23 @@
+import type { Metadata } from "next";
+import { SiteHeader, SiteFooter } from "@/components/SiteHeader";
+import { LegalText } from "@/components/LegalText";
+import { OFFER, OFFER_UPDATED } from "@/content/offer";
+
+export const metadata: Metadata = {
+  title: "Публічна оферта — flixмаркет",
+  description: "Умови користування сервісом flixмаркет: оплата, видача доступу, повернення коштів.",
+};
+
+export default function OfferPage() {
+  return (
+    <div className="wrap">
+      <SiteHeader />
+      <div className="legal">
+        <h1 className="h-sm" style={{ margin: "28px 0 8px" }}>Публічна<br /><em>оферта</em></h1>
+        <p className="legal-date">Оновлено {OFFER_UPDATED}</p>
+        <div className="legal-body"><LegalText raw={OFFER} /></div>
+      </div>
+      <SiteFooter />
+    </div>
+  );
+}

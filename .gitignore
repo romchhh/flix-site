@@ -1,0 +1,17 @@
+backend/data/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.next/
+node_modules/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+database/*.db
+database/*.db-journal
+database/*.db-shm
+database/*.db-wal
