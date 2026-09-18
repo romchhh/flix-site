@@ -52,14 +52,20 @@ export default async function Cabinet({ searchParams }:
   const recurring = data?.subscriptions.recurring ?? [];
   const all = [...recurring, ...oneTime];
   const expired = (s: BotSubscription) => {
-    const st = (s.status || "").toLowerCase();
-    if (st && st !== "active") return true;
-    if (!s.expiresAt) return false;
+    // Архів лише коли строк дійсно минув — скасоване автосписання лишається активним до expiresAt
+    if (!s.expiresAt) {
+      const st = (s.status || "").toLowerCase();
+      return Boolean(st && st !== "active");
+    }
     const t = new Date(s.expiresAt).getTime();
     return Number.isFinite(t) && t < Date.now();
   };
   const past = all.filter(expired);
   const active = all.filter((s) => !expired(s));
+  const billingOff = (s: BotSubscription) => {
+    const st = (s.status || "").toLowerCase();
+    return Boolean(st && st !== "active");
+  };
   const hasVpn = active.some((s) => /vpn/i.test(s.name || "") || s.slug.includes("vpn"));
   const payments = data?.payments ?? [];
   const pending = data?.pending ?? null;
@@ -162,7 +168,9 @@ export default async function Cabinet({ searchParams }:
                   productId: s.productId,
                   price: s.price,
                   months: s.months,
-                  profileName: s.kind === "recurring" ? "автосписання" : null,
+                  profileName: s.kind === "recurring"
+                    ? (billingOff(s) ? "без автосписання" : "автосписання")
+                    : null,
                   pin: null,
                   login: s.login ?? null,
                   password: s.password ?? null,
@@ -170,7 +178,8 @@ export default async function Cabinet({ searchParams }:
                   startsAt: s.startsAt,
                   expiresAt: s.expiresAt,
                   source: s.source || "site",
-                  recurring: s.kind === "recurring" && s.status === "active",
+                  recurring: s.kind === "recurring",
+                  billingActive: s.kind === "recurring" && !billingOff(s),
                   nextPaymentAt: s.nextPaymentAt,
                   photoUrl: s.photoUrl,
                   maskedCard: s.maskedCard,
@@ -228,11 +237,11 @@ export default async function Cabinet({ searchParams }:
                       </header>
                     <div className="acts">
                       {s.slug ? (
-                        <Link className="btn sm" href={`/buy/${s.slug}`}>
+                        <Link className="btn sm btn-wide" href={`/buy/${s.slug}`}>
                           Купити знову<span className="dot"><Arrow /></span>
                         </Link>
                       ) : (
-                        <Link className="btn sm" href="/catalog">
+                        <Link className="btn sm btn-wide" href="/catalog">
                           До каталогу<span className="dot"><Arrow /></span>
                         </Link>
                       )}

@@ -9,13 +9,14 @@ type UserChip = {
   telegramName?: string | null;
   email?: string | null;
   isAdmin?: boolean;
+  isGuest?: boolean;
 };
 
 function navClass(pathname: string, href: string, base = "top-nav-link") {
   const active = href === "/catalog"
     ? pathname.startsWith("/catalog") || pathname.startsWith("/buy/")
     : href === "/cabinet"
-      ? pathname.startsWith("/cabinet")
+      ? pathname.startsWith("/cabinet") || pathname.startsWith("/order/")
       : href === "/admin"
         ? pathname.startsWith("/admin")
         : pathname === href || (href.startsWith("/#") && false);
@@ -24,9 +25,15 @@ function navClass(pathname: string, href: string, base = "top-nav-link") {
 
 export function SiteNav({ user }: { user?: UserChip | null }) {
   const pathname = usePathname() || "/";
-  const label = user?.telegramName ? `@${user.telegramName}` : user?.email ?? "";
+  const label = user?.telegramName
+    ? `@${user.telegramName}`
+    : user?.email
+      ? user.email
+      : user?.isGuest
+        ? "Гість"
+        : "";
   const short = label.length > 22 ? label.slice(0, 20) + "…" : label;
-  const initials = (label.replace("@", "").slice(0, 2) || "??").toUpperCase();
+  const initials = (label.replace("@", "").slice(0, 2) || (user?.isGuest ? "ГС" : "??")).toUpperCase();
 
   return (
     <nav className="top-nav" aria-label="Головна навігація">

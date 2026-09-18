@@ -1,25 +1,38 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import type { Plan } from "@/lib/plan-types";
 import { uah } from "@/lib/display";
 import { Arrow } from "@/components/Logo";
 import { SUPPORT_TG } from "@/lib/seo";
 
-export function BuyForm({ productId, slug, options, loggedIn, free, recurring = false, deliveryNote = "" }:
-  { productId: string; slug: string; options: Plan[]; loggedIn: boolean; free: number | null;
-    recurring?: boolean; deliveryNote?: string }) {
+export function BuyForm({
+  productId,
+  options,
+  loggedIn,
+  free,
+  recurring = false,
+  deliveryNote = "",
+  autoIssue = false,
+}: {
+  productId: string;
+  slug: string;
+  options: Plan[];
+  loggedIn: boolean;
+  free: number | null;
+  recurring?: boolean;
+  deliveryNote?: string;
+  autoIssue?: boolean;
+}) {
   const [months, setMonths] = useState(options[0]?.months ?? 0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const router = useRouter();
 
   const chosen = options.find((o) => o.months === months);
   const soldOut = free !== null && free <= 0;
 
   async function pay() {
-    if (!loggedIn) { router.push(`/login?next=/buy/${slug}`); return; }
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
       const res = await fetch("/api/checkout", {
         method: "POST",
@@ -27,8 +40,14 @@ export function BuyForm({ productId, slug, options, loggedIn, free, recurring = 
         body: JSON.stringify({ productId, months }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "Не вдалось створити замовлення"); return; }
-      if (!data.pageUrl) { setError("Немає посилання на оплату"); return; }
+      if (!res.ok) {
+        setError(data.error ?? "Не вдалось створити замовлення");
+        return;
+      }
+      if (!data.pageUrl) {
+        setError("Немає посилання на оплату");
+        return;
+      }
       window.location.href = data.pageUrl;
     } catch {
       setError("Мережа не відповідає. Спробуй ще раз.");
@@ -41,7 +60,13 @@ export function BuyForm({ productId, slug, options, loggedIn, free, recurring = 
     return (
       <div>
         <h3 style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>Ціни ще не виставлені</h3>
-        <p className="muted">Цей товар поки не продається. Напиши <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer" style={{ color: "var(--blue)", fontWeight: 800 }}>менеджеру @kinomanage</a> — скажемо, коли зʼявиться.</p>
+        <p className="muted">
+          Цей товар поки не продається. Напиши{" "}
+          <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer" style={{ color: "var(--blue)", fontWeight: 800 }}>
+            менеджеру @kinomanage
+          </a>{" "}
+          — скажемо, коли зʼявиться.
+        </p>
       </div>
     );
   }
@@ -94,6 +119,11 @@ export function BuyForm({ productId, slug, options, loggedIn, free, recurring = 
         <p className="buy-form-terms">
           Оплата карткою через Monobank.
           {recurring ? " Наступні списання — раз на місяць, тією ж карткою." : ""}
+          {!loggedIn && autoIssue
+            ? " Після оплати доступ зʼявиться одразу на цій вкладці."
+            : !loggedIn
+              ? " Після оплати напиши менеджеру — він видасть доступ."
+              : ""}
         </p>
       </section>
 
@@ -107,7 +137,7 @@ export function BuyForm({ productId, slug, options, loggedIn, free, recurring = 
             <button className="btn buy-pay-btn" type="button" disabled>Немає в наявності</button>
           ) : (
             <button className="btn buy-pay-btn" type="button" onClick={pay} disabled={busy}>
-              {busy ? "Створюємо…" : loggedIn ? "До оплати" : "Увійти та оплатити"}
+              {busy ? "Створюємо…" : "До оплати"}
               <span className="dot"><Arrow /></span>
             </button>
           )}

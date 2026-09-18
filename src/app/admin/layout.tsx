@@ -1,9 +1,11 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/session";
 import { Logo } from "@/components/Logo";
 import { LogoutButton } from "@/components/LogoutButton";
+import { PageBack } from "@/components/PageBack";
 import { pageMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +45,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <LogoutButton compact />
         </div>
       </aside>
-      <main className="adm-main">{children}</main>
+      <main className="adm-main">
+        <Suspense fallback={null}>
+          <PageBack className="adm-back" />
+        </Suspense>
+        {children}
+      </main>
     </div>
   );
 }

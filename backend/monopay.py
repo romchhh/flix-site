@@ -6,9 +6,7 @@ import uuid
 
 import httpx
 
-from urllib.parse import urlparse
-
-from .settings import APP_URL, BOT_API_URL, MONO_XTOKEN
+from .settings import APP_URL, MONO_XTOKEN
 HOST = "https://api.monobank.ua/"
 
 
@@ -20,10 +18,7 @@ class MonoError(Exception):
 
 
 def webhook_url() -> str:
-    bot = (BOT_API_URL or "").rstrip("/")
-    host = (urlparse(bot).hostname or "").lower()
-    if bot and host not in ("127.0.0.1", "localhost", "::1"):
-        return f"{bot}/api/v1/webhooks/mono"
+    """Завжди на сайт: склад/автовидача, далі форвард у бота."""
     return f"{APP_URL.rstrip('/')}/api/webhooks/mono"
 
 
@@ -118,3 +113,28 @@ async def create_invoice(
         "wallet_id": None,
         "payment_type": "one_time",
     }
+
+
+async def fetch_invoice_status(invoice_id: str) -> dict | None:
+    """Статус інвойсу в Mono (підстраховка, якщо вебхук не дійшов)."""
+    import logging
+    token = MONO_XTOKEN
+    if not token or not invoice_id:
+        return None
+    headers = {"X-Token": token}
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        try:
+            res = await client.get(
+                f"{HOST}api/merchant/invoice/status",
+                params={"invoiceId": invoice_id},
+                headers=headers,
+            )
+        except httpx.RequestError as e:
+            logging.getLogger("flix.site.mono").warning("status check %s: %s", invoice_id, e)
+            return None
+    if res.status_code >= 400:
+        return None
+    try:
+        return res.json()
+    except Exception:
+        return None

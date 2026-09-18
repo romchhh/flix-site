@@ -192,7 +192,12 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
               loggedIn={!!me}
               free={null}
               recurring={product.recurring}
-              deliveryNote={product.deliveryNote}
+              autoIssue={Boolean(product.autoIssue)}
+              deliveryNote={
+                product.autoIssue
+                  ? "Доступ зʼявиться одразу після оплати"
+                  : product.deliveryNote
+              }
             />
           </div>
         </aside>

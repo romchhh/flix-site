@@ -199,6 +199,8 @@ def apply_stock_settings(catalog: dict) -> dict:
             product["autoIssue"] = False
             continue
         product["autoIssue"] = settings.get(pid, False)
+        if product["autoIssue"]:
+            product["deliveryNote"] = "Доступ зʼявиться одразу після оплати"
     return catalog
 
 

@@ -102,7 +102,7 @@ export default async function CatalogPage({ searchParams }: Props) {
             <Link className="btn" href="/catalog">Усі підписки<span className="dot"><Arrow /></span></Link>
           </div>
         ) : (
-          <ProductGrid products={products} />
+          <ProductGrid products={products} catSlug={current?.slug ?? null} />
         )}
 
         <div className="vpn">

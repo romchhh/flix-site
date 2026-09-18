@@ -9,7 +9,7 @@ import re
 import secrets
 import time
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import bcrypt
 from fastapi import FastAPI, Request
@@ -20,10 +20,12 @@ from . import bot_client, catalog_svc, mail, monopay, payments_svc, stock_svc, t
 from .bot_client import BotAPIError
 from .db import (
     confirm_telegram_login,
+    create_guest_user,
     db,
     get_bot_sub_cache,
     get_telegram_login,
     init_db,
+    is_guest_user,
     later,
     new_id,
     now,
@@ -328,6 +330,17 @@ async def resolve_bot_user_id(user_row, site_user_id: str) -> int | None:
         except BotAPIError as e:
             log.warning("resolve_bot_user_id email: %s", e)
     return None
+
+
+async def ensure_checkout_identity(request: Request) -> tuple[dict, str, bool]:
+    """Повертає (user, site_user_id, created_guest). Без Telegram — гість або email-акаунт."""
+    uid = current_user_id(request)
+    if uid:
+        me = get_user(uid)
+        if me:
+            return me, uid, False
+    guest = create_guest_user()
+    return guest, guest["id"], True
 
 
 async def _telegram_from_bot_login(params: dict) -> tuple[dict, str] | None:
@@ -871,9 +884,6 @@ async def telegram_auth(request: Request):
 
 @app.post("/api/checkout")
 async def checkout(request: Request):
-    uid = current_user_id(request)
-    if not uid:
-        return json_error("Unauthorized", 401)
     body = await request.json()
     product_id = body.get("productId") or body.get("product_id")
     months = body.get("months")
@@ -882,13 +892,10 @@ async def checkout(request: Request):
         product_id_int = int(product_id)
     except (TypeError, ValueError):
         return json_error("Некоректні дані замовлення")
-    me = get_user(uid)
-    if not me:
-        return json_error("Unauthorized", 401)
+
+    me, uid, created_guest = await ensure_checkout_identity(request)
     telegram_id = me.get("telegram_id")
-    username = me.get("telegram_name") or me.get("email")
-    if not telegram_id:
-        return json_error("Увійди через Telegram, щоб оплатити.")
+    username = me.get("telegram_name") or (None if is_guest_user(me) else me.get("email")) or "guest"
 
     item = await catalog_svc.get_product(str(product_id_int))
     if not item:
@@ -901,20 +908,30 @@ async def checkout(request: Request):
         return json_error("Некоректна ціна")
     subscription = bool(item.get("recurring") or item.get("paymentType") == "subscription")
     origin = (request.headers.get("origin") or APP_URL or "").rstrip("/")
+    auto_issue = bool(item.get("autoIssue"))
 
     try:
         bot_uid = await resolve_bot_user_id(me, uid)
         if not bot_uid:
             try:
-                created_user = await bot_client.ensure_user(telegram_id=int(telegram_id), username=username)
-                bot_uid = int(created_user.get("userId") or telegram_id)
-            except BotAPIError:
-                bot_uid = int(telegram_id)
+                if telegram_id:
+                    created_user = await bot_client.ensure_user(
+                        telegram_id=int(telegram_id), username=username,
+                    )
+                    bot_uid = int(created_user.get("userId") or telegram_id)
+                else:
+                    guest_email = me.get("email") or f"guest-{uid}@guest.flix.local"
+                    created_user = await bot_client.ensure_user(
+                        email=guest_email, username=username,
+                    )
+                    bot_uid = int(created_user.get("userId"))
+            except BotAPIError as e:
+                return json_error(e.message or "Не вдалось створити акаунт для оплати", min(e.status, 502))
             with db() as conn:
                 conn.execute("UPDATE users SET bot_user_id = ? WHERE id = ?", (bot_uid, uid))
 
         payment_ref = f"site_{bot_uid}_{int(time.time())}"
-        redirect_url = f"{origin or APP_URL}/cabinet?order={payment_ref}"
+        redirect_url = f"{origin or APP_URL}/order/{payment_ref}"
         created = await monopay.create_invoice(
             user_id=bot_uid,
             product_name=item.get("name") or "Підписка",
@@ -929,7 +946,7 @@ async def checkout(request: Request):
             invoice_id=created["invoice_id"],
             site_user_id=uid,
             bot_user_id=bot_uid,
-            telegram_id=int(telegram_id),
+            telegram_id=int(telegram_id) if telegram_id else None,
             product_id=product_id_int,
             months=months,
             amount=amount_uah,
@@ -946,13 +963,78 @@ async def checkout(request: Request):
     except monopay.MonoError as e:
         return json_error(e.message, min(e.status, 502))
 
-    return JSONResponse({
+    resp = JSONResponse({
         "ok": True,
         "pageUrl": created["page_url"],
         "ref": created["invoice_id"],
         "invoice_id": created["invoice_id"],
         "payment_id": created["payment_id"],
+        "autoIssue": auto_issue,
+        "guest": created_guest or is_guest_user(me),
     })
+    if created_guest:
+        set_cookie(resp, uid)
+    return resp
+
+
+@app.get("/api/order/{ref}")
+async def order_status(ref: str, request: Request):
+    uid = current_user_id(request)
+    if not uid:
+        return json_error("Unauthorized", 401)
+    row = payments_svc.get_site_payment(ref)
+    if not row:
+        return json_error("Замовлення не знайдено", 404)
+    if str(row.get("site_user_id")) != str(uid):
+        return json_error("Це чуже замовлення", 403)
+
+    status = (row.get("status") or "pending").lower()
+    product = await catalog_svc.get_product(str(row["product_id"]))
+    auto_issue = bool(product and product.get("autoIssue")) if product else stock_svc.is_auto_issue(int(row["product_id"]))
+    delivery = None
+    if status in ("success", "paid"):
+        await stock_svc.process_paid_payment(row)
+        drow = stock_svc.get_delivery_access_for_payment(uid, str(row.get("invoice_id") or ""))
+        if drow:
+            delivery = drow
+
+    support_text = (
+        f"Привіт! Оплатив замовлення на сайті flixмаркет.\n"
+        f"Номер: {row.get('payment_id')}\n"
+        f"Товар: {(product or {}).get('name') or row.get('product_id')}\n"
+        f"Строк: {row.get('months')} міс."
+    )
+    return {
+        "ok": True,
+        "paymentId": row.get("payment_id"),
+        "invoiceId": row.get("invoice_id"),
+        "status": status,
+        "amount": row.get("amount"),
+        "months": row.get("months"),
+        "productId": str(row.get("product_id")),
+        "productName": (product or {}).get("name"),
+        "productSlug": (product or {}).get("slug"),
+        "photoUrl": (product or {}).get("photoUrl"),
+        "autoIssue": auto_issue,
+        "delivery": delivery,
+        "supportUrl": f"https://t.me/kinomanage?text={quote(support_text)}",
+        "supportText": support_text,
+    }
+
+
+@app.post("/api/order/{ref}/code")
+async def order_code(ref: str, request: Request):
+    uid = current_user_id(request)
+    if not uid:
+        return json_error("Unauthorized", 401)
+    row = payments_svc.get_site_payment(ref)
+    if not row or str(row.get("site_user_id")) != str(uid):
+        return json_error("Замовлення не знайдено", 404)
+    ip = request.client.host if request.client else ""
+    result = stock_svc.totp_code_for_payment(uid, str(row.get("invoice_id") or ""), ip=ip)
+    if not result.get("ok"):
+        return json_error(result.get("error") or "Не вдалось отримати код", 400)
+    return result
 
 
 @app.post("/api/webhooks/mono")
@@ -1028,6 +1110,21 @@ async def cabinet(request: Request, order: str | None = None):
                 sub["photoUrl"] = f"/api/media/product/{pid}"
 
     stock_svc.enrich_subscriptions(uid, subs)
+    stock_svc.append_orphan_deliveries(uid, subs)
+    for bucket in (subs.get("oneTime") or [],):
+        for sub in bucket:
+            if not str(sub.get("id") or "").startswith("del-"):
+                continue
+            pid = sub.get("productId")
+            if not pid:
+                continue
+            product = await catalog_svc.get_product(str(pid))
+            if product:
+                sub["name"] = product.get("name") or sub.get("name")
+                sub["slug"] = product.get("slug")
+                sub["icon"] = product.get("icon")
+                sub["color"] = product.get("color")
+                sub["photoUrl"] = product.get("photoUrl") or sub.get("photoUrl")
 
     return {
         "user": user_public(me),

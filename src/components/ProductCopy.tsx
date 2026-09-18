@@ -4,9 +4,11 @@ import { splitProductCopy } from "@/lib/description";
 export function ProductCopy({
   description,
   features = "",
+  className = "",
 }: {
   description: string;
   features?: string;
+  className?: string;
 }) {
   const { lede, features: fromDesc } = splitProductCopy(description);
   const extra = features
@@ -18,7 +20,7 @@ export function ProductCopy({
   if (!lede && !items.length) return null;
 
   return (
-    <div className="product-copy">
+    <div className={`product-copy${className ? ` ${className}` : ""}`}>
       {lede && <p className="p-lede">{lede}</p>}
       {items.length > 0 && (
         <div className="feat product-feat">

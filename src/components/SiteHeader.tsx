@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { Logo } from "./Logo";
+import { PageBack } from "./PageBack";
 import { SiteNav } from "./SiteNav";
 import { currentUser } from "@/lib/session";
 import { SUPPORT_TG } from "@/lib/seo";
@@ -11,7 +13,12 @@ export async function SiteHeader() {
     <header className="site-header">
       <div className="header-shell">
         <div className="bar">
-          <Logo size={25} />
+          <div className="bar-start">
+            <Suspense fallback={null}>
+              <PageBack />
+            </Suspense>
+            <Logo size={25} />
+          </div>
           <SiteNav user={me} />
         </div>
       </div>

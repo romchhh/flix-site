@@ -54,7 +54,7 @@ export default async function Home() {
             </div>
             <div className="stats">
               <div className="stat"><b>2 хв</b><small>від оплати до доступу</small></div>
-              <div className="stat"><b>24/7</b><small>видача та підтримка</small></div>
+              <div className="stat"><b>Автовидача</b><small>замовлень</small></div>
             </div>
           </div>
 

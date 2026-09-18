@@ -47,6 +47,7 @@ export default {
       { source: "/api/products/:path*", destination: `${backend}/api/products/:path*` },
       { source: "/api/media/:path*", destination: `${backend}/api/media/:path*` },
       { source: "/api/cabinet", destination: `${backend}/api/cabinet` },
+      { source: "/api/order/:path*", destination: `${backend}/api/order/:path*` },
       { source: "/api/admin/:path*", destination: `${backend}/api/admin/:path*` },
       { source: "/api/subs/:path*", destination: `${backend}/api/subs/:path*` },
     ];

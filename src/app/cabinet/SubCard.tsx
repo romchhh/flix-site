@@ -37,6 +37,7 @@ type Sub = {
   expiresAt: string;
   source?: string;
   recurring?: boolean;
+  billingActive?: boolean;
   nextPaymentAt?: string;
   photoUrl?: string | null;
   maskedCard?: string | null;
@@ -69,6 +70,7 @@ export function SubCard({ sub }: { sub: Sub }) {
   const cardLabel = formatCard(sub.maskedCard, sub.cardType);
   const nextPay = sub.nextPaymentAt ? new Date(sub.nextPaymentAt) : null;
   const charges = sub.charges ?? [];
+  const billingOn = Boolean(sub.recurring && sub.billingActive !== false);
 
   async function fetchCode() {
     setCodeBusy(true);
@@ -124,7 +126,11 @@ export function SubCard({ sub }: { sub: Sub }) {
           <div className="sub-content">
           <header className="sub-body-head">
             <div>
-              <h3>{sub.name}</h3>
+              <h3>
+                {sub.slug ? (
+                  <Link href={`/buy/${sub.slug}`} className="sub-title-link">{sub.name}</Link>
+                ) : sub.name}
+              </h3>
               <p className="sub-price-line">
                 {sub.price != null ? `${sub.price}₴` : ""}
                 {sub.recurring && sub.months ? ` · кожні ${sub.months} міс` : ""}
@@ -132,6 +138,9 @@ export function SubCard({ sub }: { sub: Sub }) {
             </div>
             <div className="sub-head-badges">
               <span className={`badge ${src.cls}`}>{src.label}</span>
+              {sub.recurring && !billingOn && (
+                <span className="badge b-off">без авто</span>
+              )}
               <span className={`badge ${soon ? "b-soon" : "b-ok"}`}>
                 {soon ? `${left} ${plural(left, "день", "дні", "днів")}` : "активна"}
               </span>
@@ -139,7 +148,7 @@ export function SubCard({ sub }: { sub: Sub }) {
           </header>
 
           <div className="sub-stats">
-            {sub.recurring && nextPay && (
+            {sub.recurring && billingOn && nextPay && (
               <div className="sub-stat">
                 <small>Наступне списання</small>
                 <b>{dateTimeUk(nextPay)}</b>
@@ -179,7 +188,8 @@ export function SubCard({ sub }: { sub: Sub }) {
             </a>
             {(sub.login || sub.password) && (
               <button className="btn sm soft" type="button" onClick={() => setOpenCreds(!openCreds)}>
-                Дані для входу<span className="dot"><Chevron /></span>
+                {openCreds ? "Сховати дані" : "Дані входу"}
+                <span className="dot"><Chevron /></span>
               </button>
             )}
             {sub.hasTotp && (
@@ -187,9 +197,9 @@ export function SubCard({ sub }: { sub: Sub }) {
                 {codeBusy ? "Код…" : "Код 2FA"}
               </button>
             )}
-            {sub.recurring && (
+            {billingOn && (
               <button
-                className="btn sm soft"
+                className="btn sm soft btn-wide"
                 type="button"
                 onClick={() => { setError(null); setConfirmCancel(true); }}
                 disabled={busy}
@@ -198,7 +208,7 @@ export function SubCard({ sub }: { sub: Sub }) {
               </button>
             )}
             {soon && sub.slug && (
-              <Link className="btn sm" href={`/buy/${sub.slug}`}>
+              <Link className="btn sm btn-wide" href={`/buy/${sub.slug}`}>
                 Продовжити<span className="dot"><Arrow /></span>
               </Link>
             )}

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ServiceIcon } from "./ServiceIcon";
 import { Arrow } from "./Logo";
 import { badgeClass, badgeLabel } from "@/lib/display";
-import { ProductDescription } from "./ProductDescription";
+import { ProductCopy } from "./ProductCopy";
 
 /**
  * Картка каталогу.
@@ -15,7 +15,7 @@ import { ProductDescription } from "./ProductDescription";
  * рядки переносяться по-різному на різних екранах.
  */
 export function CatalogCard({ name, icon, color, description, features, priceMain, priceNote, href, photoUrl, badge }: {
-  name: string; icon: string; color: string; description: string; features: string[];
+  name: string; icon: string; color: string; description: string; features: string;
   priceMain: string; priceNote: string; href: string; photoUrl?: string | null; badge?: string | null;
 }) {
   const [open, setOpen] = useState(false);
@@ -48,17 +48,12 @@ export function CatalogCard({ name, icon, color, description, features, priceMai
         {!showPhoto && (
           <ServiceIcon slug={icon} color={color} letter={name.charAt(0)} size={30} />
         )}
-        <h3>{name}</h3>
+        <h3><Link href={href} className="cat-card-title">{name}</Link></h3>
       </div>
       {!showPhoto && tag && <span className={badgeClass(badge)} style={{ alignSelf: "flex-start", marginBottom: 10 }}>{tag}</span>}
 
       <div ref={body} className={open ? "cb" : "cb cb-cut"}>
-        {description && <ProductDescription text={description} className="prose-desc prose-desc-compact" />}
-        {features.length > 0 && (
-          <div className="feat">
-            {features.map((f, i) => <span key={i}><i>✓</i> {f}</span>)}
-          </div>
-        )}
+        <ProductCopy description={description} features={features} className="cat-card-copy" />
       </div>
 
       <div className="cb-toggle">

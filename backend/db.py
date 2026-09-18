@@ -235,14 +235,44 @@ def user_public(row: sqlite3.Row | dict | None) -> dict | None:
     if row is None:
         return None
     d = dict(row)
+    email = d.get("email") or None
+    is_guest = bool(email and str(email).endswith("@guest.flix.local"))
     return {
         "id": d["id"],
-        "email": d.get("email"),
+        "email": None if is_guest else email,
         "emailVerified": d.get("email_verified"),
         "telegramId": d.get("telegram_id"),
         "telegramName": d.get("telegram_name"),
         "telegramPhoto": d.get("telegram_photo"),
         "botUserId": d.get("bot_user_id"),
         "isAdmin": bool(d.get("is_admin")),
+        "isGuest": is_guest,
         "createdAt": d.get("created_at"),
     }
+
+
+GUEST_EMAIL_DOMAIN = "guest.flix.local"
+
+
+def create_guest_user() -> dict:
+    """Анонімний акаунт для оплати без Telegram / email."""
+    uid = new_id()
+    email = f"guest-{uid}@{GUEST_EMAIL_DOMAIN}"
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, email, password_hash, is_admin, created_at)
+            VALUES (?, ?, NULL, 0, ?)
+            """,
+            (uid, email, now()),
+        )
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+    return dict(row)
+
+
+def is_guest_user(row: dict | None) -> bool:
+    if not row:
+        return False
+    email = str(row.get("email") or "")
+    return email.endswith(f"@{GUEST_EMAIL_DOMAIN}")
+

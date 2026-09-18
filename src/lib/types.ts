@@ -54,6 +54,7 @@ export type SiteUser = {
   telegramPhoto?: string | null;
   botUserId: number | null;
   isAdmin: boolean;
+  isGuest?: boolean;
 };
 
 export type BotSubscription = {

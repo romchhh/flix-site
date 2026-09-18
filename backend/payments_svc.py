@@ -175,7 +175,11 @@ def _webhook_for_row(row: dict) -> dict:
 
 
 async def sync_payment_to_bot(row: dict) -> bool:
-    """Записати платіж у бота; якщо вже success — форвардити вебхук, щоб спрацювала видача."""
+    """Записати платіж у бота; склад спочатку, потім форвард вебхука боту."""
+    # Автовидача зі складу сайту — до повідомлень бота
+    if (row.get("status") or "").lower() in _PAID:
+        await stock_svc.process_paid_payment(row)
+
     try:
         await bot_client.record_payment(
             user_id=int(row["bot_user_id"]),
@@ -197,7 +201,6 @@ async def sync_payment_to_bot(row: dict) -> bool:
     if mono in _PAID or st in _PAID or mono == "success" or st == "success":
         ok = await forward_mono_to_bot(_webhook_for_row(row))
         if not ok:
-            # Платіж уже в боті як pending — cron бота підхопить через Mono status.
             log.warning(
                 "payment %s recorded in bot, webhook forward failed — bot cron should fulfill",
                 row.get("invoice_id"),
@@ -209,8 +212,6 @@ async def sync_payment_to_bot(row: dict) -> bool:
             (now(), row["invoice_id"]),
         )
     log.info("synced payment %s to bot (status=%s)", row.get("invoice_id"), row.get("status"))
-    if (row.get("status") or "").lower() in _PAID:
-        await stock_svc.process_paid_payment(row)
     return True
 
 
@@ -236,11 +237,13 @@ async def handle_mono_webhook(payload: dict) -> None:
     if invoice_id:
         update_mono_status(invoice_id, status, webhook=payload)
         row = get_site_payment(invoice_id)
-        if row and not row.get("synced_to_bot"):
-            await sync_payment_to_bot(row)
-            return
-        if row and status in _PAID:
-            await stock_svc.process_paid_payment(row)
+        if row:
+            # Склад одразу після оплати, навіть якщо синк з ботом уже був
+            if status in _PAID:
+                await stock_svc.process_paid_payment(row)
+            if not row.get("synced_to_bot"):
+                await sync_payment_to_bot(get_site_payment(invoice_id) or row)
+                return
     await forward_mono_to_bot(payload)
 
 
@@ -258,13 +261,64 @@ async def sync_pending_to_bot(limit: int = 50) -> int:
     return ok
 
 
+def list_pending_site_payments(limit: int = 30) -> list[dict]:
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM site_payments
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def refresh_pending_from_mono(limit: int = 20) -> int:
+    """Якщо вебхук не дійшов — підтягнути статус з Mono і видати зі складу."""
+    from . import monopay
+
+    ok = 0
+    for row in list_pending_site_payments(limit):
+        invoice_id = str(row.get("invoice_id") or "")
+        if not invoice_id:
+            continue
+        try:
+            data = await monopay.fetch_invoice_status(invoice_id)
+        except Exception:
+            log.exception("mono status poll %s", invoice_id)
+            continue
+        if not data:
+            continue
+        status = str(data.get("status") or "").strip().lower()
+        if not status:
+            continue
+        update_mono_status(invoice_id, status, webhook=data)
+        fresh = get_site_payment(invoice_id)
+        if not fresh:
+            continue
+        if status in _PAID:
+            await stock_svc.process_paid_payment(fresh)
+            if not fresh.get("synced_to_bot"):
+                await sync_payment_to_bot(fresh)
+            else:
+                await forward_mono_to_bot(_webhook_for_row(fresh))
+            ok += 1
+        await asyncio.sleep(0.1)
+    if ok:
+        log.info("refreshed %s pending payment(s) from Mono", ok)
+    return ok
+
+
 async def sync_loop(interval_s: float = 45.0) -> None:
-    """Фоновий ретрай, поки Bot API знову не підніметься."""
+    """Фоновий ретрай: синк з ботом + підстраховка статусу Mono."""
     await asyncio.sleep(3)
     while True:
         try:
             if unsynced_count() > 0:
                 await sync_pending_to_bot()
+            await refresh_pending_from_mono()
         except Exception:
             log.exception("payment sync loop")
         await asyncio.sleep(interval_s)

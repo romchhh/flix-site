@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { Logo } from "@/components/Logo";
+import { PageBack } from "@/components/PageBack";
 import { ResetForm } from "./ResetForm";
 import { SpamHint } from "@/components/SpamHint";
 
@@ -9,6 +11,9 @@ export default async function ResetPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="auth-wrap">
+      <Suspense fallback={null}>
+        <PageBack className="auth-back" />
+      </Suspense>
       <div className="auth-card">
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 22 }}>
           <Logo size={22} tag={null} />

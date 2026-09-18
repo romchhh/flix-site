@@ -233,6 +233,111 @@ def get_delivery_by_payment(payment_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+def get_delivery_access_for_payment(site_user_id: str, payment_id: str) -> dict | None:
+    with db() as conn:
+        row = conn.execute(
+            """
+            SELECT d.*, c.login, c.secret_enc, c.totp_enc
+            FROM deliveries d
+            JOIN credentials c ON c.id = d.credential_id
+            WHERE d.payment_id = ? AND d.site_user_id = ?
+            LIMIT 1
+            """,
+            (payment_id, site_user_id),
+        ).fetchone()
+    if not row:
+        return None
+    data = dict(row)
+    if not _delivery_active(data):
+        return None
+    return _delivery_access(data)
+
+
+def totp_code_for_payment(site_user_id: str, payment_id: str, ip: str = "") -> dict:
+    access = get_delivery_access_for_payment(site_user_id, payment_id)
+    if not access:
+        return {"ok": False, "error": "Доступ недоступний"}
+    return totp_code_for_delivery(site_user_id, access["id"], ip=ip)
+
+
+def totp_code_for_delivery(site_user_id: str, delivery_id: str, ip: str = "") -> dict:
+    with db() as conn:
+        row = conn.execute(
+            """
+            SELECT d.*, c.totp_enc
+            FROM deliveries d
+            JOIN credentials c ON c.id = d.credential_id
+            WHERE d.id = ? AND d.site_user_id = ?
+            LIMIT 1
+            """,
+            (delivery_id, site_user_id),
+        ).fetchone()
+        if not row or not row["totp_enc"]:
+            return {"ok": False, "error": "Для цього доступу немає 2FA"}
+        data = dict(row)
+        if not _delivery_active(data):
+            return {"ok": False, "error": "Підписка закінчилась"}
+        # rate limit reuse via existing logs
+        since = (datetime.utcnow() - timedelta(minutes=_CODE_WINDOW_MIN)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        recent = conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM code_logs
+            WHERE delivery_id = ? AND created_at >= ?
+            """,
+            (delivery_id, since),
+        ).fetchone()
+        if recent and int(recent["c"]) >= _CODE_LIMIT:
+            return {"ok": False, "error": "Забагато запитів. Спробуй пізніше або напиши менеджеру."}
+        conn.execute(
+            "INSERT INTO code_logs (id, delivery_id, user_id, ip, created_at) VALUES (?, ?, ?, ?, ?)",
+            (new_id(), delivery_id, site_user_id, ip or "", now()),
+        )
+    secret = decrypt(row["totp_enc"])
+    data = totp_generate(secret)
+    return {"ok": True, "code": data["code"], "secondsLeft": data["secondsLeft"]}
+
+
+def append_orphan_deliveries(site_user_id: str, subs: dict) -> dict:
+    """Додає в кабінет видачі без привʼязки до підписки бота (гостьові покупки)."""
+    deliveries = list_deliveries_for_user(site_user_id)
+    linked_ids = {
+        str(sub.get("deliveryId"))
+        for bucket in (subs.get("oneTime") or [], subs.get("recurring") or [])
+        for sub in bucket
+        if sub.get("deliveryId")
+    }
+
+    extras = []
+    for row in deliveries:
+        if str(row["id"]) in linked_ids:
+            continue
+        if not _delivery_active(row):
+            continue
+        access = _delivery_access(row)
+        extras.append({
+            "id": f"del-{access['id']}",
+            "botId": None,
+            "productId": access["productId"],
+            "name": access.get("profileName") or f"Підписка #{access['productId']}",
+            "kind": "one_time",
+            "status": "active",
+            "source": "site",
+            "startsAt": row.get("created_at"),
+            "expiresAt": access.get("expiresAt"),
+            "login": access["login"],
+            "password": access["password"],
+            "hasTotp": access["hasTotp"],
+            "deliveryId": access["id"],
+            "profileName": access.get("profileName"),
+            "photoUrl": f"/api/media/product/{access['productId']}",
+        })
+        linked_ids.add(str(row["id"]))
+    if extras:
+        subs.setdefault("oneTime", [])
+        subs["oneTime"] = extras + list(subs["oneTime"])
+    return subs
+
+
 def list_deliveries_for_user(site_user_id: str) -> list[dict]:
     with db() as conn:
         rows = conn.execute(
@@ -272,11 +377,12 @@ def _delivery_active(row: dict) -> bool:
 
 
 def _sub_active(sub: dict) -> bool:
-    status = (sub.get("status") or "").lower()
-    if status and status != "active":
-        return False
+    """Доступ активний, поки не минув expiresAt (скасоване автосписання не ховає дані)."""
     exp = _parse_iso(sub.get("expiresAt"))
     if not exp:
+        status = (sub.get("status") or "").lower()
+        if status and status not in ("active", "cancelled", "canceled", "inactive"):
+            return False
         return True
     if exp.tzinfo is None:
         exp = exp.replace(tzinfo=timezone.utc)
@@ -301,6 +407,23 @@ def _delivery_access(row: dict) -> dict:
 def delivery_for_sub(site_user_id: str, sub_id: str, sub: dict | None = None) -> dict | None:
     if sub and not _sub_active(sub):
         return None
+    if (sub_id or "").startswith("del-"):
+        delivery_id = sub_id[4:]
+        with db() as conn:
+            row = conn.execute(
+                """
+                SELECT d.*, c.login, c.secret_enc, c.totp_enc
+                FROM deliveries d
+                JOIN credentials c ON c.id = d.credential_id
+                WHERE d.id = ? AND d.site_user_id = ?
+                LIMIT 1
+                """,
+                (delivery_id, site_user_id),
+            ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        return _delivery_access(data) if _delivery_active(data) else None
     raw = (sub_id or "").replace("rec-", "").replace("one-", "")
     kind = "recurring" if sub_id.startswith("rec-") else "one_time"
     try:
