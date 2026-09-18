@@ -18,7 +18,39 @@ def _norm_token(raw: str) -> str:
     return (raw or "").strip().strip('"').strip("'")
 
 
-TELEGRAM_BOT_TOKEN = _norm_token(os.getenv("TELEGRAM_BOT_TOKEN", ""))
+def _read_env_token(*keys: str) -> str:
+    """Останнє непусте значення з .env (дублікат TELEGRAM_BOT_TOKEN=\"\" в кінці файлу ламає dotenv)."""
+    keyset = set(keys)
+    last_nonempty: dict[str, str] = {}
+    for env_path in (ROOT / ".env", Path(__file__).resolve().parent / ".env"):
+        if not env_path.is_file():
+            continue
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            s = line.strip()
+            if not s or s.startswith("#") or "=" not in s:
+                continue
+            k, _, v = s.partition("=")
+            k = k.strip()
+            if k not in keyset:
+                continue
+            val = _norm_token(v)
+            if val:
+                last_nonempty[k] = val
+    for key in keys:
+        val = _norm_token(os.getenv(key, ""))
+        if val:
+            return val
+    for key in keys:
+        if key in last_nonempty:
+            return last_nonempty[key]
+    return ""
+
+
+TELEGRAM_BOT_TOKEN = _read_env_token("TELEGRAM_BOT_TOKEN", "BOT_TOKEN")
 TELEGRAM_BOT_NAME = os.getenv("TELEGRAM_BOT_NAME", "FlixMarketBot")
 ADMIN_EMAILS = [s.strip().lower() for s in os.getenv("ADMIN_EMAILS", "").split(",") if s.strip()]
 ADMIN_TELEGRAM_IDS = [s.strip() for s in os.getenv("ADMIN_TELEGRAM_IDS", "").split(",") if s.strip()]

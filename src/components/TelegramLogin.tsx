@@ -1,11 +1,7 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { TgIcon } from "./Logo";
-
-declare global {
-  interface Window { onTelegramAuth?: (u: Record<string, string>) => void }
-}
 
 export function openTelegram(url: string, botName: string) {
   const start = (() => {
@@ -35,7 +31,6 @@ export function openTelegram(url: string, botName: string) {
  */
 export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
   { botName: string; label: string; onDone?: (r: { imported?: number; linked?: boolean }) => void; next?: string }) {
-  const box = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,43 +42,6 @@ export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
     if (onDone) onDone(data);
     else { router.push(next); router.refresh(); }
   }
-
-  useEffect(() => {
-    window.onTelegramAuth = async (user) => {
-      setBusy(true);
-      setError(null);
-      try {
-        const res = await fetch("/api/auth/telegram", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(user),
-        });
-        const data = await res.json();
-        if (!res.ok) { setError(data.error ?? "Не вдалось увійти"); return; }
-        await finish(data);
-      } catch {
-        setError("Мережа не відповідає. Спробуй ще раз.");
-      } finally {
-        setBusy(false);
-      }
-    };
-
-    const host = window.location.hostname;
-    const https = window.location.protocol === "https:";
-    const local = host === "localhost" || host === "127.0.0.1";
-    const tunnel = /ngrok|localhost.run|cloudflared|loca.lt/i.test(host);
-    if (!https || local || tunnel || !box.current || box.current.childElementCount) return;
-    const s = document.createElement("script");
-    s.src = "https://telegram.org/js/telegram-widget.js?22";
-    s.async = true;
-    s.setAttribute("data-telegram-login", botName);
-    s.setAttribute("data-size", "large");
-    s.setAttribute("data-radius", "20");
-    s.setAttribute("data-onauth", "onTelegramAuth(user)");
-    s.setAttribute("data-request-access", "write");
-    s.setAttribute("data-userpic", "true");
-    box.current.appendChild(s);
-  }, [botName, onDone, router, next]);
 
   async function viaBot() {
     setBusy(true);
@@ -136,7 +94,6 @@ export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
 
   return (
     <div>
-      <div ref={box} style={{ display: "flex", justifyContent: "center" }} />
       <button type="button" className="tg-btn" onClick={viaBot} disabled={busy || waiting}>
         <TgIcon />
         {waiting ? "Чекаємо підтвердження в Telegram…" : "Увійти через Telegram"}

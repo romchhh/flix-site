@@ -416,7 +416,12 @@ async def complete_telegram_session(
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True}
+    token = normalize_bot_token(TELEGRAM_BOT_TOKEN)
+    return {
+        "ok": True,
+        "telegramToken": bool(token),
+        "botApi": bool(BOT_API_URL and BOT_API_KEY),
+    }
 
 
 @app.get("/api/me")
@@ -722,12 +727,30 @@ async def telegram_bot_confirm(request: Request):
     flat = {k: str(v) for k, v in body.items() if v is not None and not isinstance(v, (dict, list))}
     parsed = await _telegram_from_signed(flat)
     if not parsed:
-        return json_error(
-            "Підпис Telegram не пройшов перевірку. "
-            "Перевір TELEGRAM_BOT_TOKEN на сайті та BOT_TOKEN у бота (без лапок і пробілів), "
-            "або натисни «Увійти через Telegram» на сайті ще раз.",
-            401,
-        )
+        login_token = str(flat.get("login_token") or "").strip()
+        tg_id_raw = str(flat.get("id") or "").strip()
+        if login_token and tg_id_raw.isdigit():
+            try:
+                data = await bot_client.web_login_status(login_token)
+            except BotAPIError:
+                data = {}
+            if data.get("status") == "confirmed" and int(data.get("telegramId") or 0) == int(tg_id_raw):
+                username = (data.get("username") or tg_id_raw).lstrip("@")
+                confirm_telegram_login(login_token, int(tg_id_raw), username)
+                parsed = ({"id": int(tg_id_raw), "username": username}, username)
+        if not parsed:
+            token_ok = bool(normalize_bot_token(TELEGRAM_BOT_TOKEN))
+            hint = (
+                "У .env сайту є дублікат TELEGRAM_BOT_TOKEN=\"\" в кінці файлу — видали його. "
+                if not token_ok
+                else "Натисни Start у боті з посилання (не /start вручну) і спробуй ще раз. "
+            )
+            return json_error(
+                "Підпис Telegram не пройшов перевірку. "
+                + hint
+                + "TELEGRAM_BOT_TOKEN на сайті = BOT_TOKEN у бота (без лапок).",
+                401,
+            )
     tg, _username = parsed
     subs = body.get("subscriptions")
     if isinstance(subs, dict):
