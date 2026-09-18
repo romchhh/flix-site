@@ -380,8 +380,9 @@ iframe[src*="oauth.telegram.org"],.tgme_widget_login,.tgme_widget_login_error,[i
 .sub-row-track{
   margin-top:10px;height:5px;border-radius:999px;background:var(--line);overflow:hidden;
 }
-.sub-row-track i{display:block;height:100%;border-radius:999px;background:var(--blue)}
+.sub-row-track i{display:block;height:100%;border-radius:999px;background:var(--blue);transition:width .25s ease,background .2s}
 .sub-row-track i.warn{background:var(--orange)}
+.sub-row-track i.crit{background:var(--red)}
 .sub-row-extra{
   margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);
   display:flex;flex-direction:column;gap:12px;

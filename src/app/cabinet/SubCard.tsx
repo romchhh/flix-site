@@ -79,8 +79,10 @@ export function SubCard({ sub }: { sub: Sub }) {
 
   const exp = new Date(sub.expiresAt);
   const left = daysLeft(exp);
-  const pct = progress(new Date(sub.startsAt), exp);
+  const remainingPct = progress(new Date(sub.startsAt), exp);
   const soon = left <= 7;
+  const critical = left <= 3;
+  const trackTone = critical ? "crit" : soon ? "warn" : "";
   const cardLabel = formatCard(sub.maskedCard, sub.cardType);
   const nextPay = sub.nextPaymentAt ? new Date(sub.nextPaymentAt) : null;
   const charges = sub.charges ?? [];
@@ -168,8 +170,8 @@ export function SubCard({ sub }: { sub: Sub }) {
                 </button>
               </div>
             </div>
-            <div className="sub-row-track">
-              <i className={soon ? "warn" : ""} style={{ width: `${pct}%` }} />
+            <div className="sub-row-track" title={`Лишилось ${daysLabel}`}>
+              <i className={trackTone} style={{ width: `${remainingPct}%` }} />
             </div>
           </div>
         </div>

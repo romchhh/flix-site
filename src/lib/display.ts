@@ -65,12 +65,19 @@ export function daysLeft(expiresAt: Date): number {
   return Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / 86400_000));
 }
 
-/** Скільки строку вже минуло, 0–100 */
+/** Скільки строку ще лишилось, 0–100 (повна смужка = майже весь період попереду). */
 export function progress(startsAt: Date, expiresAt: Date): number {
-  const all = expiresAt.getTime() - startsAt.getTime();
-  const left = expiresAt.getTime() - Date.now();
-  if (all <= 0) return 0;
-  return Math.min(100, Math.max(0, Math.round((left / all) * 100)));
+  const end = expiresAt.getTime();
+  const leftMs = end - Date.now();
+  if (!Number.isFinite(end) || leftMs <= 0) return 0;
+
+  let start = startsAt.getTime();
+  let all = end - start;
+  // Немає валідного старту — орієнтуємось на залишок (мін. 30 днів як шкала)
+  if (!Number.isFinite(start) || all <= 0) {
+    all = Math.max(leftMs, 30 * 86400_000);
+  }
+  return Math.min(100, Math.max(0, Math.round((leftMs / all) * 100)));
 }
 
 export const plural = (n: number, one: string, few: string, many: string) => {
