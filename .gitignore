@@ -4,6 +4,9 @@ backend/**/__pycache__/
 *.pyc
 .venv/
 venv/
+myenv/
+backend.pid
+backend.log
 .env
 .next/
 node_modules/
