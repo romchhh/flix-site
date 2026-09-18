@@ -115,7 +115,7 @@ export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
         try { body = await st.json(); } catch { continue; }
         if (!st.ok) { setError(body.error ?? "Не вдалось перевірити вхід"); break; }
         if (body.status === "expired") { setError("Посилання протухло. Натисни кнопку ще раз."); break; }
-        if (body.ok || body.login) { await finish(body); return; }
+        if (body.ok || body.login) { await finish({}); return; }
         const me = await fetch("/api/me");
         if (me.ok) { await finish({}); return; }
       }
