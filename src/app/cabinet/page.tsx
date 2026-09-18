@@ -7,11 +7,10 @@ import { SiteHeader, SiteFooter } from "@/components/SiteHeader";
 import { Arrow, TgIcon } from "@/components/Logo";
 import { SubCard } from "./SubCard";
 import { PaymentHistory } from "./PaymentHistory";
-import { ServiceIcon } from "@/components/ServiceIcon";
+import { SubPhoto } from "./SubPhoto";
 import { VerifyBar } from "./VerifyBar";
 import { LogoutButton } from "@/components/LogoutButton";
 import { pageMetadata, SUPPORT_TG } from "@/lib/seo";
-import { productPhotoUrl } from "@/lib/display";
 import type { BillingEntry, BotSubscription, SiteUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -196,23 +195,18 @@ export default async function Cabinet({ searchParams }:
             <>
               <h2 style={{ fontSize: 22, margin: active.length ? "36px 0 14px" : "8px 0 14px" }}>Архів</h2>
               <div className="list">
-                {past.map((s) => {
-                  const photo = productPhotoUrl(s.photoUrl, s.productId);
-                  return (
+                {past.map((s) => (
                   <article className="sub sub-v2 sub-arch" key={s.id}>
-                    <div className={`sub-cover${photo ? "" : " no-photo"}`}>
-                      {photo ? (
-                        <img className="sub-cover-img" src={photo} alt="" />
-                      ) : (
-                        <div className="sub-cover-fallback" style={{ background: `linear-gradient(145deg, ${s.color}18 0%, ${s.color}33 100%)`, opacity: .85 }}>
-                          <ServiceIcon slug={s.icon} color={s.color} letter={s.name.charAt(0)} size={44} />
-                        </div>
-                      )}
-                      <div className="sub-cover-badges">
-                        <span className="badge b-off">архів</span>
-                      </div>
-                    </div>
-                    <div className="sub-body">
+                    <div className="sub-layout">
+                      <SubPhoto
+                        name={s.name}
+                        icon={s.icon}
+                        color={s.color}
+                        photoUrl={s.photoUrl}
+                        productId={s.productId}
+                        size={44}
+                      />
+                      <div className="sub-content">
                       <header className="sub-body-head">
                         <div>
                           <h3>{s.name}</h3>
@@ -223,6 +217,7 @@ export default async function Cabinet({ searchParams }:
                             {s.price != null ? ` · ${s.price}₴` : ""}
                           </p>
                         </div>
+                        <span className="badge b-off">архів</span>
                       </header>
                     <div className="acts">
                       {s.slug ? (
@@ -235,10 +230,10 @@ export default async function Cabinet({ searchParams }:
                         </Link>
                       )}
                     </div>
+                      </div>
                     </div>
                   </article>
-                  );
-                })}
+                ))}
               </div>
             </>
           )}

@@ -270,13 +270,23 @@ iframe[src*="oauth.telegram.org"],.tgme_widget_login,.tgme_widget_login_error,[i
 
 /* ── картка підписки v2 ── */
 .sub-v2{padding:0;overflow:hidden}
-.sub-cover{position:relative;height:168px;background:var(--soft);overflow:hidden}
-.sub-cover.no-photo:not(:has(.sub-cover-img)){height:120px}
-.sub-cover-img{width:100%;height:100%;object-fit:cover;display:block}
-.sub-cover-fallback{width:100%;height:100%;display:grid;place-items:center}
-.sub-cover-badges{position:absolute;top:14px;right:14px;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
-.sub-body{padding:20px 22px 22px}
+.sub-layout{display:flex;align-items:stretch;min-height:0}
+.sub-media{
+  flex:0 0 156px;max-width:156px;align-self:stretch;
+  display:flex;align-items:center;justify-content:center;
+  padding:16px 14px;background:var(--soft);border-right:1px solid var(--line);
+}
+.sub-photo-fit{
+  max-width:100%;max-height:220px;width:auto;height:auto;
+  object-fit:contain;display:block;border-radius:12px;
+}
+.sub-media-fallback{
+  width:100%;min-height:120px;display:grid;place-items:center;border-radius:14px;
+}
+.sub-content{flex:1;min-width:0;padding:18px 22px 22px}
+.sub-body-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
 .sub-body-head h3{font-size:21px;font-weight:800;letter-spacing:-.02em}
+.sub-head-badges{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;flex:0 0 auto}
 .sub-price-line{font-size:14px;color:var(--muted);font-weight:700;margin-top:4px}
 .sub-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0 14px}
 .sub-stat{background:var(--soft);border-radius:16px;padding:12px 14px}
@@ -333,7 +343,11 @@ iframe[src*="oauth.telegram.org"],.tgme_widget_login,.tgme_widget_login_error,[i
 .btn.danger{background:var(--red)}
 .btn.danger:hover:not(:disabled){background:#C92F2F}
 @media (max-width:640px){
+  .sub-media{flex-basis:112px;max-width:112px;padding:12px 10px}
+  .sub-photo-fit{max-height:160px}
   .sub-stats{grid-template-columns:1fr}
+  .sub-body-head{flex-direction:column}
+  .sub-head-badges{justify-content:flex-start}
   .pay-row{flex-direction:column}
   .pay-side{text-align:left}
   .dlg-acts{flex-direction:column-reverse}

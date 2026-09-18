@@ -2,13 +2,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ServiceIcon } from "@/components/ServiceIcon";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PaymentHistory } from "./PaymentHistory";
+import { SubPhoto } from "./SubPhoto";
 import { Arrow, Chevron } from "@/components/Logo";
 import {
   dateUk, dateTimeUk, daysLeft, progress, plural,
-  productPhotoUrl, formatCard,
+  formatCard,
 } from "@/lib/display";
 import { SUPPORT_TG } from "@/lib/seo";
 import type { BillingEntry } from "@/lib/types";
@@ -47,7 +47,6 @@ export function SubCard({ sub }: { sub: Sub }) {
   const [openCreds, setOpenCreds] = useState(false);
   const [openHistory, setOpenHistory] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const [imgFailed, setImgFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
@@ -57,8 +56,6 @@ export function SubCard({ sub }: { sub: Sub }) {
   const pct = progress(new Date(sub.startsAt), exp);
   const soon = left <= 7;
   const src = SOURCE_BADGE[sub.source || "bot"] || SOURCE_BADGE.bot;
-  const photoSrc = productPhotoUrl(sub.photoUrl, sub.productId);
-  const showPhoto = Boolean(photoSrc) && !imgFailed;
   const cardLabel = formatCard(sub.maskedCard, sub.cardType);
   const nextPay = sub.nextPaymentAt ? new Date(sub.nextPaymentAt) : null;
   const charges = sub.charges ?? [];
@@ -85,23 +82,17 @@ export function SubCard({ sub }: { sub: Sub }) {
   return (
     <>
       <article className="sub sub-v2">
-        <div className={`sub-cover${showPhoto ? "" : " no-photo"}`}>
-          {showPhoto ? (
-            <img className="sub-cover-img" src={photoSrc!} alt="" onError={() => setImgFailed(true)} />
-          ) : (
-            <div className="sub-cover-fallback" style={{ background: `linear-gradient(145deg, ${sub.color}22 0%, ${sub.color}44 100%)` }}>
-              <ServiceIcon slug={sub.icon} color={sub.color} letter={sub.name.charAt(0)} size={52} />
-            </div>
-          )}
-          <div className="sub-cover-badges">
-            <span className={`badge ${src.cls}`}>{src.label}</span>
-            <span className={`badge ${soon ? "b-soon" : "b-ok"}`}>
-              {soon ? `${left} ${plural(left, "день", "дні", "днів")}` : "активна"}
-            </span>
-          </div>
-        </div>
+        <div className="sub-layout">
+          <SubPhoto
+            name={sub.name}
+            icon={sub.icon}
+            color={sub.color}
+            photoUrl={sub.photoUrl}
+            productId={sub.productId}
+            size={52}
+          />
 
-        <div className="sub-body">
+          <div className="sub-content">
           <header className="sub-body-head">
             <div>
               <h3>{sub.name}</h3>
@@ -109,6 +100,12 @@ export function SubCard({ sub }: { sub: Sub }) {
                 {sub.price != null ? `${sub.price}₴` : ""}
                 {sub.recurring && sub.months ? ` · кожні ${sub.months} міс` : ""}
               </p>
+            </div>
+            <div className="sub-head-badges">
+              <span className={`badge ${src.cls}`}>{src.label}</span>
+              <span className={`badge ${soon ? "b-soon" : "b-ok"}`}>
+                {soon ? `${left} ${plural(left, "день", "дні", "днів")}` : "активна"}
+              </span>
             </div>
           </header>
 
@@ -191,6 +188,7 @@ export function SubCard({ sub }: { sub: Sub }) {
               </p>
             </div>
           )}
+          </div>
         </div>
       </article>
 
