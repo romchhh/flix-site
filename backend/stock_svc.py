@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from . import bot_client
 from .bot_client import BotAPIError
@@ -248,6 +248,41 @@ def list_deliveries_for_user(site_user_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        if raw.endswith("Z"):
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _delivery_active(row: dict) -> bool:
+    exp = _parse_iso(row.get("expires_at"))
+    if not exp:
+        return True
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    return exp > datetime.now(timezone.utc)
+
+
+def _sub_active(sub: dict) -> bool:
+    status = (sub.get("status") or "").lower()
+    if status and status != "active":
+        return False
+    exp = _parse_iso(sub.get("expiresAt"))
+    if not exp:
+        return True
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    return exp > datetime.now(timezone.utc)
+
+
 def _delivery_access(row: dict) -> dict:
     return {
         "id": row["id"],
@@ -263,7 +298,9 @@ def _delivery_access(row: dict) -> dict:
     }
 
 
-def delivery_for_sub(site_user_id: str, sub_id: str) -> dict | None:
+def delivery_for_sub(site_user_id: str, sub_id: str, sub: dict | None = None) -> dict | None:
+    if sub and not _sub_active(sub):
+        return None
     raw = (sub_id or "").replace("rec-", "").replace("one-", "")
     kind = "recurring" if sub_id.startswith("rec-") else "one_time"
     try:
@@ -282,7 +319,10 @@ def delivery_for_sub(site_user_id: str, sub_id: str) -> dict | None:
             (site_user_id, bot_sub_id, kind),
         ).fetchone()
         if row:
-            return _delivery_access(dict(row))
+            data = dict(row)
+            if _delivery_active(data):
+                return _delivery_access(data)
+            return None
         row = conn.execute(
             """
             SELECT d.*, c.login, c.secret_enc, c.totp_enc
@@ -296,12 +336,13 @@ def delivery_for_sub(site_user_id: str, sub_id: str) -> dict | None:
     for candidate in row:
         data = dict(candidate)
         if str(data.get("bot_sub_kind") or "") == kind or not data.get("bot_sub_kind"):
-            return _delivery_access(data)
+            if _delivery_active(data):
+                return _delivery_access(data)
     return None
 
 
-def totp_code_for_sub(site_user_id: str, sub_id: str, ip: str = "") -> dict:
-    delivery = delivery_for_sub(site_user_id, sub_id)
+def totp_code_for_sub(site_user_id: str, sub_id: str, ip: str = "", sub: dict | None = None) -> dict:
+    delivery = delivery_for_sub(site_user_id, sub_id, sub=sub)
     if not delivery:
         return {"ok": False, "error": "Доступ не знайдено"}
     with db() as conn:
@@ -359,7 +400,11 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
             pool = unlinked.get(pid) or []
             if pool:
                 row = pool.pop(0)
-        if not row:
+        if not row or not _sub_active(sub) or not _delivery_active(row):
+            sub.pop("login", None)
+            sub.pop("password", None)
+            sub.pop("hasTotp", None)
+            sub.pop("deliveryId", None)
             return
         access = _delivery_access(row)
         sub["login"] = access["login"]
