@@ -32,7 +32,14 @@ a{color:inherit}
 @media (max-width:520px){.fm-tag{display:none}}
 
 /* ── шапка ── */
-header{padding:26px 0 0}
+.site-header{
+  position:sticky;top:0;z-index:100;
+  margin:0 -20px;padding:14px 20px 12px;
+  background:rgba(246,248,253,.88);
+  backdrop-filter:saturate(180%) blur(14px);
+  -webkit-backdrop-filter:saturate(180%) blur(14px);
+  border-bottom:1px solid rgba(237,240,247,.95);
+}
 .bar{display:flex;align-items:center;justify-content:space-between;gap:16px}
 .top-links{display:flex;align-items:center;gap:20px}
 /* без nowrap «Як це працює» ламається на два рядки і зсуває весь ряд */

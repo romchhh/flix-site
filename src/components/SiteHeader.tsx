@@ -10,7 +10,7 @@ export async function SiteHeader() {
   const initials = (label.replace("@", "").slice(0, 2) || "??").toUpperCase();
 
   return (
-    <header>
+    <header className="site-header">
       <div className="bar">
         <Logo size={25} />
         <div className="top-links">
