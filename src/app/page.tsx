@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { SiteHeader, SiteFooter } from "@/components/SiteHeader";
 import { ServiceIcon } from "@/components/ServiceIcon";
 import { CategoryRow } from "@/components/CategoryRow";
@@ -6,13 +7,21 @@ import { ProductGrid } from "@/components/ProductGrid";
 import { CabinetPreview } from "@/components/CabinetPreview";
 import { Reviews } from "@/components/Reviews";
 import { Arrow, TgIcon } from "@/components/Logo";
+import { JsonLd } from "@/components/JsonLd";
 import { priceCaption } from "@/lib/pricing";
 import { letterOf } from "@/lib/display";
 import { backendJson } from "@/lib/backend";
+import { itemListJsonLd, pageMetadata, SITE_DESCRIPTION } from "@/lib/seo";
 import type { CatalogCategory, CatalogProduct } from "@/lib/types";
 import { CoverPhoto } from "@/components/CoverPhoto";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = pageMetadata({
+  title: undefined,
+  description: SITE_DESCRIPTION,
+  path: "/",
+});
 
 export default async function Home() {
   const data = await backendJson<{ products: CatalogProduct[]; categories: CatalogCategory[] }>("/api/catalog");
@@ -23,6 +32,12 @@ export default async function Home() {
 
   return (
     <div className="wrap">
+      <JsonLd
+        data={itemListJsonLd(products.filter((p) => p.visible), {
+          name: "Каталог підписок flixмаркет",
+          path: "/catalog",
+        })}
+      />
       <SiteHeader />
 
       <div style={{ padding: "56px 0 20px" }}>

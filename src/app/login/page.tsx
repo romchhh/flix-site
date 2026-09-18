@@ -1,10 +1,19 @@
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { currentUser } from "@/lib/session";
 import { env } from "@/lib/env";
 import { Logo } from "@/components/Logo";
 import { AuthForm } from "./AuthForm";
+import { pageMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = pageMetadata({
+  title: "Увійти",
+  description: "Увійди в flixмаркет через Telegram або пошту. Підписки з бота зʼявляться в кабінеті.",
+  path: "/login",
+  noIndex: true,
+});
 
 export default async function LoginPage({ searchParams }:
   { searchParams: Promise<{ mode?: string; verify?: string; next?: string }> }) {

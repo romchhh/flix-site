@@ -7,8 +7,10 @@ import { currentUser } from "@/lib/session";
 import { SiteHeader, SiteFooter } from "@/components/SiteHeader";
 import { ServiceIcon } from "@/components/ServiceIcon";
 import { Faq } from "@/components/Faq";
+import { JsonLd } from "@/components/JsonLd";
 import { parseFaq } from "@/lib/faq";
 import { letterOf, badgeClass, badgeLabel } from "@/lib/display";
+import { breadcrumbJsonLd, faqJsonLd, pageMetadata, productJsonLd, truncate } from "@/lib/seo";
 import { BuyForm } from "./BuyForm";
 import { backendJson } from "@/lib/backend";
 import type { CatalogProduct } from "@/lib/types";
@@ -23,11 +25,22 @@ async function loadProduct(slug: string) {
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const p = await loadProduct(slug);
-  if (!p) return { title: "Товар не знайдено" };
-  return {
-    title: `${p.name} — flixмаркет`,
-    description: (p.description || "").slice(0, 160),
-  };
+  if (!p) {
+    return pageMetadata({
+      title: "Товар не знайдено",
+      description: "Такої підписки немає в каталозі flixмаркет.",
+      path: `/buy/${slug}`,
+      noIndex: true,
+    });
+  }
+  const desc =
+    truncate(p.description || `${p.name} — купити підписку на flixмаркет. Оплата карткою, доступ у кабінеті.`, 160);
+  return pageMetadata({
+    title: p.name,
+    description: desc,
+    path: `/buy/${p.slug}`,
+    image: p.photoUrl || undefined,
+  });
 }
 
 export default async function BuyPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -44,6 +57,17 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
 
   return (
     <div className="wrap">
+      <JsonLd
+        data={[
+          breadcrumbJsonLd([
+            { name: "Головна", path: "/" },
+            { name: "Каталог", path: "/catalog" },
+            { name: product.name, path: `/buy/${product.slug}` },
+          ]),
+          productJsonLd(product),
+          faqJsonLd(faq),
+        ].filter(Boolean) as Record<string, unknown>[]}
+      />
       <SiteHeader />
 
       <p className="crumbs">

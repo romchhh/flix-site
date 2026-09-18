@@ -41,9 +41,10 @@ export async function SiteHeader() {
 
 export function SiteFooter() {
   const links = [
-    { label: "Підтримка", href: "https://t.me/kinomanage", note: "@kinomanage" },
-    { label: "Telegram-бот", href: "https://t.me/FlixMarketBot" },
-    { label: "Наш VPN", href: "https://t.me/FlixVPNBot" },
+    { label: "Каталог", href: "/catalog" },
+    { label: "Підтримка", href: "https://t.me/kinomanage", note: "@kinomanage", external: true },
+    { label: "Telegram-бот", href: "https://t.me/FlixMarketBot", external: true },
+    { label: "Наш VPN", href: "https://t.me/FlixVPNBot", external: true },
     { label: "Кабінет", href: "/cabinet" },
     { label: "Публічна оферта", href: "/offer" },
     { label: "Політика конфіденційності", href: "/privacy" },
@@ -51,9 +52,14 @@ export function SiteFooter() {
 
   return (
     <footer className="ft">
-      <nav className="ft-row">
+      <nav className="ft-row" aria-label="Підвал сайту">
         {links.map((l) => (
-          <Link className="ft-btn" key={l.href} href={l.href}>
+          <Link
+            className="ft-btn"
+            key={l.href}
+            href={l.href}
+            {...(l.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+          >
             {l.label}
             {l.note && <span className="ft-note">{l.note}</span>}
           </Link>

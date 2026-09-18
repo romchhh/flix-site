@@ -1,10 +1,19 @@
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { currentUser } from "@/lib/session";
 import { env } from "@/lib/env";
 import { SiteHeader, SiteFooter } from "@/components/SiteHeader";
 import { LinkForm } from "./LinkForm";
+import { pageMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = pageMetadata({
+  title: "Привʼязати Telegram",
+  description: "Підтягни покупки з бота FlixMarket у кабінет на сайті.",
+  path: "/link",
+  noIndex: true,
+});
 
 export default async function LinkPage() {
   const me = await currentUser();

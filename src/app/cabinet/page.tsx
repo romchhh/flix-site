@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/session";
 import { backendJson } from "@/lib/backend";
@@ -7,9 +8,17 @@ import { Arrow, TgIcon } from "@/components/Logo";
 import { SubCard } from "./SubCard";
 import { VerifyBar } from "./VerifyBar";
 import { LogoutButton } from "@/components/LogoutButton";
+import { pageMetadata } from "@/lib/seo";
 import type { BotSubscription, SiteUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = pageMetadata({
+  title: "Мій кабінет",
+  description: "Твої підписки, строки та автосписання в flixмаркет.",
+  path: "/cabinet",
+  noIndex: true,
+});
 
 type CabinetData = {
   user: SiteUser;

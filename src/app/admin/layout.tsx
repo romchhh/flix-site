@@ -1,10 +1,19 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/session";
 import { Logo } from "@/components/Logo";
 import { LogoutButton } from "@/components/LogoutButton";
+import { pageMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = pageMetadata({
+  title: "Адмінка",
+  description: "Адмін-панель flixмаркет",
+  path: "/admin",
+  noIndex: true,
+});
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const me = await currentUser();

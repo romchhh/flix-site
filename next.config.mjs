@@ -25,6 +25,18 @@ export default {
   allowedDevOrigins: allowedDevOrigins(),
   env: { APP_URL: process.env.APP_URL || "http://localhost:3000" },
   poweredByHeader: false,
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     return [
       { source: "/api/auth/:path*", destination: `${backend}/api/auth/:path*` },

@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import { SiteHeader, SiteFooter } from "@/components/SiteHeader";
 import { LegalText } from "@/components/LegalText";
 import { PRIVACY, PRIVACY_UPDATED } from "@/content/privacy";
+import { pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Політика конфіденційності — flixмаркет",
+export const metadata: Metadata = pageMetadata({
+  title: "Політика конфіденційності",
   description: "Які дані збирає flixмаркет, навіщо, кому передає і як довго зберігає.",
-};
+  path: "/privacy",
+});
 
 export default function PrivacyPage() {
   return (
