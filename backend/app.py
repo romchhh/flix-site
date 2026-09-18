@@ -36,6 +36,7 @@ from .settings import (
     ADMIN_TELEGRAM_IDS,
     APP_URL,
     BOT_API_URL,
+    bot_api_is_local,
     COOKIE_DOMAIN,
     COOKIE_NAME,
     COOKIE_SECURE,
@@ -69,7 +70,22 @@ _hits: dict[str, tuple[int, float]] = {}
 async def _startup():
     init_db()
     _warn_if_telegram_token_mismatch()
+    await _warn_if_bot_api_unreachable()
     asyncio.create_task(payments_svc.sync_loop())
+
+
+async def _warn_if_bot_api_unreachable():
+    if await _bot_api_ping():
+        log.info("Bot API OK → %s", BOT_API_URL)
+        return
+    if bot_api_is_local():
+        log.error(
+            "Bot API недоступне на %s. Сайт і бот на різних серверах — "
+            "в .env вкажи BOT_API_URL=https://ПУБЛІЧНИЙ_ДОМЕН_БОТА (напр. https://market.easyplayy.com)",
+            BOT_API_URL,
+        )
+    else:
+        log.error("Bot API недоступне: %s — перевір nginx/ufw і що бот запущений", BOT_API_URL)
 
 
 async def _bot_api_ping() -> bool:

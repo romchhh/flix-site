@@ -10,8 +10,24 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 APP_URL = os.getenv("APP_URL", "http://localhost:3000").rstrip("/")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-session-secret-change-me")
-BOT_API_URL = os.getenv("BOT_API_URL", "http://127.0.0.1:8088").rstrip("/")
+def _bot_api_url() -> str:
+    """Публічний URL API бота. На окремому VPS — НЕ 127.0.0.1."""
+    explicit = (os.getenv("BOT_API_URL") or "").strip().rstrip("/")
+    public = (os.getenv("BOT_PUBLIC_API_URL") or os.getenv("PUBLIC_API_URL") or "").strip().rstrip("/")
+    if explicit and urlparse(explicit).hostname not in ("127.0.0.1", "localhost", "::1"):
+        return explicit
+    if public:
+        return public
+    return explicit or "http://127.0.0.1:8088"
+
+
+BOT_API_URL = _bot_api_url()
 BOT_API_KEY = os.getenv("BOT_API_KEY", "")
+
+
+def bot_api_is_local() -> bool:
+    host = (urlparse(BOT_API_URL).hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1", "")
 MINIAPP_API_URL = os.getenv("MINIAPP_API_URL", "https://market.easyplayy.com").rstrip("/")
 MINIAPP_API_KEY = os.getenv("MINIAPP_API_KEY", "") or BOT_API_KEY
 def _norm_token(raw: str) -> str:
