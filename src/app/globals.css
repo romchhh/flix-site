@@ -591,6 +591,10 @@ td.n{font-weight:800;white-space:nowrap}
 .p-head{display:flex;align-items:center;gap:16px;margin-bottom:18px;flex-wrap:wrap}
 .p-head h1{font-size:clamp(30px,5vw,46px);text-transform:none;line-height:1.05}
 .p-lede{font-size:17px;line-height:1.55;color:#232838;font-weight:500;max-width:52ch}
+.product-copy{max-width:520px}
+.product-copy .p-lede{margin:0}
+.product-feat{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.product-feat span{font-size:15px;line-height:1.5}
 .prose-desc{display:flex;flex-direction:column;gap:12px}
 .prose-desc p{margin:0;font-size:inherit;line-height:inherit;color:inherit;font-weight:inherit}
 .prose-desc ul{margin:0;padding:0 0 0 1.1em;display:flex;flex-direction:column;gap:6px}

@@ -11,7 +11,7 @@ import { JsonLd } from "@/components/JsonLd";
 import { parseFaq } from "@/lib/faq";
 import { letterOf, badgeClass, badgeLabel } from "@/lib/display";
 import { breadcrumbJsonLd, faqJsonLd, pageMetadata, productJsonLd, productSeo } from "@/lib/seo";
-import { ProductDescription } from "@/components/ProductDescription";
+import { ProductCopy } from "@/components/ProductCopy";
 import { BuyForm } from "./BuyForm";
 import { backendJson } from "@/lib/backend";
 import type { CatalogCategory, CatalogProduct } from "@/lib/types";
@@ -95,17 +95,7 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
             <h1>{product.name}</h1>
           </div>
 
-          {product.description && (
-            <ProductDescription text={product.description} className="p-lede prose-desc" />
-          )}
-
-          {product.features && (
-            <div className="feat" style={{ maxWidth: 520 }}>
-              {product.features.split("\n").map((f) => f.trim()).filter(Boolean).map((f, i) => (
-                <span key={i}><i>✓</i> {f}</span>
-              ))}
-            </div>
-          )}
+          <ProductCopy description={product.description} features={product.features} />
 
           <div className="p-sec">
             <h2>Як це буде</h2>
