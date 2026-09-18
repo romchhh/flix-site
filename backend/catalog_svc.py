@@ -159,6 +159,28 @@ def serialize_mini_category(raw: dict, count: int = 0) -> dict:
     }
 
 
+def apply_stock_settings(catalog: dict) -> dict:
+    from .stock_svc import list_product_settings
+
+    products = catalog.get("products") or []
+    ids: list[int] = []
+    for product in products:
+        raw = product.get("botId") or product.get("id")
+        try:
+            ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    settings = list_product_settings(ids)
+    for product in products:
+        try:
+            pid = int(product.get("botId") or product.get("id"))
+        except (TypeError, ValueError):
+            product["autoIssue"] = False
+            continue
+        product["autoIssue"] = settings.get(pid, False)
+    return catalog
+
+
 def rewrite_site_urls(catalog: dict) -> dict:
     for product in catalog.get("products") or []:
         pid = product.get("botId") or product.get("id")
@@ -303,7 +325,7 @@ async def get_catalog() -> dict:
     now = time.time()
     if _cache["data"] is not None and now - _cache["at"] < _CACHE_TTL:
         return _cache["data"]
-    data = await _load_catalog()
+    data = apply_stock_settings(await _load_catalog())
     _cache["data"] = data
     _cache["at"] = now
     return data

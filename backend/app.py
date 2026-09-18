@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
-from . import bot_client, catalog_svc, mail, monopay, payments_svc, tg_photo
+from . import bot_client, catalog_svc, mail, monopay, payments_svc, stock_svc, tg_photo
 from .bot_client import BotAPIError
 from .db import (
     confirm_telegram_login,
@@ -1027,6 +1027,8 @@ async def cabinet(request: Request, order: str | None = None):
             if pid and not sub.get("photoUrl"):
                 sub["photoUrl"] = f"/api/media/product/{pid}"
 
+    stock_svc.enrich_subscriptions(uid, subs)
+
     return {
         "user": user_public(me),
         "bot": bot_profile,
@@ -1064,7 +1066,123 @@ async def sub_code(sub_id: str, request: Request):
     uid = current_user_id(request)
     if not uid:
         return json_error("Unauthorized", 401)
-    return json_error("Коди 2FA видає менеджер у Telegram-боті після оплати.")
+    ip = request.client.host if request.client else ""
+    result = stock_svc.totp_code_for_sub(uid, sub_id, ip=ip)
+    if not result.get("ok"):
+        return json_error(result.get("error") or "Не вдалось отримати код", 400)
+    return {"code": result["code"], "secondsLeft": result["secondsLeft"]}
+
+
+@app.get("/api/admin/stock")
+async def admin_stock(request: Request, product_id: int | None = None):
+    uid = current_user_id(request)
+    me = get_user(uid) if uid else None
+    if not me or not me["is_admin"]:
+        return json_error("Forbidden", 403)
+    try:
+        catalog_data = await catalog_svc.get_catalog()
+    except BotAPIError as e:
+        return json_error(e.message, e.status)
+    products = catalog_data.get("products") or []
+    settings = stock_svc.list_product_settings(
+        [int(p.get("botId") or p.get("id")) for p in products if str(p.get("botId") or p.get("id")).isdigit()]
+    )
+    creds = stock_svc.list_credentials(product_id)
+    stock_counts: dict[str, int] = {}
+    for cred in creds:
+        pid = cred["productId"]
+        stock_counts[pid] = stock_counts.get(pid, 0) + cred["slotsFree"]
+    return {
+        "products": [
+            {
+                "id": str(p.get("botId") or p.get("id")),
+                "name": p.get("name"),
+                "autoIssue": settings.get(int(p.get("botId") or p.get("id")), False),
+                "stockFree": stock_counts.get(str(p.get("botId") or p.get("id")), 0),
+            }
+            for p in products
+        ],
+        "credentials": creds,
+    }
+
+
+@app.post("/api/admin/stock/products/{product_id}")
+async def admin_stock_product(product_id: int, request: Request):
+    uid = current_user_id(request)
+    me = get_user(uid) if uid else None
+    if not me or not me["is_admin"]:
+        return json_error("Forbidden", 403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    stock_svc.set_auto_issue(product_id, bool(body.get("autoIssue")))
+    return {"ok": True, "autoIssue": stock_svc.is_auto_issue(product_id)}
+
+
+@app.post("/api/admin/stock/credentials")
+async def admin_stock_add(request: Request):
+    uid = current_user_id(request)
+    me = get_user(uid) if uid else None
+    if not me or not me["is_admin"]:
+        return json_error("Forbidden", 403)
+    try:
+        body = await request.json()
+    except Exception:
+        return json_error("Некоректні дані", 400)
+    login = (body.get("login") or "").strip()
+    password = (body.get("password") or "").strip()
+    if not login or not password:
+        return json_error("Логін і пароль обовʼязкові", 400)
+    try:
+        product_id = int(body.get("productId"))
+    except (TypeError, ValueError):
+        return json_error("Обери товар", 400)
+    cred = stock_svc.add_credential(
+        product_id=product_id,
+        login=login,
+        password=password,
+        totp_secret=(body.get("totpSecret") or "").strip() or None,
+        slots_total=int(body.get("slotsTotal") or 1),
+        note=(body.get("note") or "").strip(),
+    )
+    return {"ok": True, "credential": cred}
+
+
+@app.patch("/api/admin/stock/credentials/{cred_id}")
+async def admin_stock_update(cred_id: str, request: Request):
+    uid = current_user_id(request)
+    me = get_user(uid) if uid else None
+    if not me or not me["is_admin"]:
+        return json_error("Forbidden", 403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    cred = stock_svc.update_credential(
+        cred_id,
+        login=body.get("login"),
+        password=body.get("password"),
+        totp_secret=body.get("totpSecret"),
+        clear_totp=bool(body.get("clearTotp")),
+        slots_total=body.get("slotsTotal"),
+        note=body.get("note"),
+        active=body.get("active"),
+    )
+    if not cred:
+        return json_error("Акаунт не знайдено", 404)
+    return {"ok": True, "credential": cred}
+
+
+@app.delete("/api/admin/stock/credentials/{cred_id}")
+async def admin_stock_delete(cred_id: str, request: Request):
+    uid = current_user_id(request)
+    me = get_user(uid) if uid else None
+    if not me or not me["is_admin"]:
+        return json_error("Forbidden", 403)
+    if not stock_svc.delete_credential(cred_id):
+        return json_error("Акаунт не знайдено", 404)
+    return {"ok": True}
 
 
 @app.get("/api/admin/overview")

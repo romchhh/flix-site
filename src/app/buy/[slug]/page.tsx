@@ -78,7 +78,7 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
         ].filter(Boolean) as Record<string, unknown>[]}
       />
       <SiteHeader />
-      <div className="wrap">
+      <div className="wrap buy-page">
       <p className="crumbs">
         <Link href="/catalog">Каталог</Link>
         {category && (
@@ -88,15 +88,7 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
       </p>
 
       <div className="buy-grid">
-        <div>
-          {product.photoUrl && (
-            <div className="p-photo">
-              <img src={product.photoUrl} alt={product.name} />
-              {badgeLabel(product.badge) && (
-                <span className={badgeClass(product.badge)}>{badgeLabel(product.badge)}</span>
-              )}
-            </div>
-          )}
+        <div className="buy-main">
           <div className="p-head">
             <ServiceIcon slug={product.icon} color={product.color} letter={letterOf(product)} size={46} />
             <h1>{product.name}</h1>
@@ -179,8 +171,27 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
           )}
         </div>
 
-        <div className="sticky">
-          <div className="card">
+        <aside className="sticky buy-aside">
+          <div className="card buy-checkout">
+            <div className="buy-summary">
+              <CoverPhoto
+                src={product.photoUrl}
+                className="buy-thumb"
+                alt={product.name}
+                fallback={(
+                  <span className="buy-thumb buy-thumb-fallback">
+                    <ServiceIcon slug={product.icon} color={product.color} letter={letterOf(product)} size={34} />
+                  </span>
+                )}
+              />
+              <div className="buy-summary-text">
+                <h2>{product.name}</h2>
+                <p>{priceCaption(product)}</p>
+                {badgeLabel(product.badge) && (
+                  <span className={badgeClass(product.badge)}>{badgeLabel(product.badge)}</span>
+                )}
+              </div>
+            </div>
             <BuyForm
               productId={product.id}
               slug={product.slug}
@@ -191,7 +202,7 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
               deliveryNote={product.deliveryNote}
             />
           </div>
-        </div>
+        </aside>
       </div>
 
       <SiteFooter />

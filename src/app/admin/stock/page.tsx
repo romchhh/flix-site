@@ -1,20 +1,38 @@
+import { backendJson } from "@/lib/backend";
+import { StockPanel } from "./StockPanel";
+
 export const dynamic = "force-dynamic";
 
-export default function AdminStock() {
+type StockData = {
+  products: Array<{ id: string; name: string; autoIssue: boolean; stockFree: number }>;
+  credentials: Array<{
+    id: string;
+    productId: string;
+    login: string;
+    hasTotp: boolean;
+    slotsTotal: number;
+    slotsUsed: number;
+    slotsFree: number;
+    note: string;
+    active: boolean;
+  }>;
+};
+
+export default async function AdminStock() {
+  const data = await backendJson<StockData>("/api/admin/stock");
+
   return (
     <>
       <div className="adm-head">
         <div>
           <h1>Склад</h1>
-          <p className="adm-sub">Доступи видає менеджер після оплати в боті</p>
+          <p className="adm-sub">Акаунти для автовидачі: логін, пароль і 2FA-код у кабінеті після оплати</p>
         </div>
       </div>
-      <div className="panel">
-        <p className="muted">
-          Склад акаунтів на сайті більше не використовується. Оплата, автосписання
-          і видача доступу відбуваються в FlixMarketBot.
-        </p>
-      </div>
+      <StockPanel
+        products={data?.products ?? []}
+        credentials={data?.credentials ?? []}
+      />
     </>
   );
 }

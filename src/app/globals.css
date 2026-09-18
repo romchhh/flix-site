@@ -137,6 +137,15 @@ section{padding:76px 0}
 /* ── картки ── */
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;align-items:start}
 .cards.catalog{grid-template-columns:repeat(auto-fill,minmax(300px,340px));justify-content:start;align-items:stretch}
+@media (max-width:720px){
+  .cards.catalog{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .cards.catalog .card{padding:18px 16px;border-radius:20px}
+  .cards.catalog .cat-card-photo{margin:-18px -16px 12px;width:calc(100% + 32px)}
+  .cards.catalog .brand h3{font-size:16px}
+  .cards.catalog .brand{min-height:44px;margin-bottom:12px}
+  .cards.catalog .price b{font-size:21px}
+  .cards.catalog .btn.block{margin-top:12px}
+}
 .card{background:#fff;border-radius:24px;padding:26px 24px;box-shadow:var(--sh);display:flex;flex-direction:column}
 .brand{display:flex;align-items:center;gap:12px;margin-bottom:16px}
 .brand h3{font-size:19px;font-weight:800;letter-spacing:-.02em}
@@ -369,7 +378,23 @@ iframe[src*="oauth.telegram.org"],.tgme_widget_login,.tgme_widget_login_error,[i
 }
 
 /* ── покупка ── */
-.buy-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:22px;align-items:start}
+.buy-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,380px);gap:22px;align-items:start}
+.buy-checkout{padding:22px 20px}
+.buy-summary{display:flex;align-items:center;gap:14px;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+.buy-thumb{width:72px;height:72px;border-radius:16px;object-fit:cover;flex:0 0 72px;background:var(--soft)}
+.buy-thumb-fallback{display:inline-flex;align-items:center;justify-content:center}
+.buy-summary-text{min-width:0;flex:1}
+.buy-summary-text h2{font-size:18px;font-weight:800;letter-spacing:-.02em;line-height:1.2;margin:0 0 4px;text-transform:none}
+.buy-summary-text p{margin:0 0 8px;font-size:13px;color:var(--muted);font-weight:700;line-height:1.35}
+.buy-form-title{font-size:16px;font-weight:800;letter-spacing:-.02em;margin:0 0 14px}
+.buy-form-foot{margin-top:16px}
+.buy-pay-wrap{margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.buy-pay-inner{display:flex;flex-direction:column;align-items:stretch;gap:12px}
+.buy-pay-total{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:4px 0 2px}
+.buy-pay-total span{font-weight:700;color:var(--muted);font-size:14px}
+.buy-pay-total b{font-size:28px;font-weight:800;letter-spacing:-.02em}
+.buy-pay-btn{width:100%;margin:0;justify-content:center}
+.buy-pay-err{margin:10px 0 0;text-align:center}
 .plan{display:flex;align-items:center;gap:14px;background:var(--soft);border:2px solid transparent;
   border-radius:18px;padding:16px 18px;cursor:pointer;margin-bottom:10px;transition:border-color .15s,background .15s}
 .plan:hover{background:#ECF0FA}
@@ -428,6 +453,25 @@ iframe[src*="oauth.telegram.org"],.tgme_widget_login,.tgme_widget_login_error,[i
 @media (max-width:880px){
   .hero-grid{grid-template-columns:1fr!important;gap:34px}
   .buy-grid{grid-template-columns:1fr}
+  .buy-aside{order:-1}
+  .buy-main .p-head{display:none}
+  .buy-page{padding-bottom:calc(92px + env(safe-area-inset-bottom, 0px))}
+  .buy-pay-wrap{
+    position:fixed;left:0;right:0;bottom:0;z-index:90;margin:0;padding:0;
+    border-top:1px solid var(--line);background:rgba(255,255,255,.97);
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    box-shadow:0 -8px 28px rgba(23,38,88,.1)
+  }
+  .buy-pay-inner{
+    flex-direction:row;align-items:center;
+    max-width:min(var(--w,1120px),100%);margin:0 auto;
+    padding:12px 20px calc(12px + env(safe-area-inset-bottom, 0px))
+  }
+  .buy-pay-total{flex:0 0 auto;flex-direction:column;align-items:flex-start;gap:1px;padding:0}
+  .buy-pay-total span{font-size:11px;font-weight:800;letter-spacing:.02em}
+  .buy-pay-total b{font-size:22px}
+  .buy-pay-btn{flex:1;min-width:0;justify-content:center}
+  .buy-pay-err{padding:0 20px 10px}
   .top-nav-links{display:none}
   .top-nav{gap:0;flex:0 0 auto}
   .top-links a:not(.enter):not(.me){display:none}
@@ -508,10 +552,6 @@ td.n{font-weight:800;white-space:nowrap}
 .crumbs a:hover{color:var(--ink)}
 .p-head{display:flex;align-items:center;gap:16px;margin-bottom:18px;flex-wrap:wrap}
 .p-head h1{font-size:clamp(30px,5vw,46px);text-transform:none;line-height:1.05}
-.p-photo{position:relative;width:100%;max-width:420px;border-radius:24px;overflow:hidden;
-  background:#fff;box-shadow:var(--sh);margin-bottom:20px}
-.p-photo img{width:100%;height:auto;object-fit:contain;display:block}
-.p-photo .badge{position:absolute;top:14px;left:14px}
 .p-lede{font-size:17px;line-height:1.55;color:#232838;font-weight:500;max-width:52ch}
 .p-sec{margin-top:34px}
 .p-sec h2{font-size:20px;text-transform:none;letter-spacing:-.02em;margin-bottom:14px;line-height:1.3}

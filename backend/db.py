@@ -109,6 +109,9 @@ def init_db():
         cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "telegram_photo" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN telegram_photo TEXT")
+        from .stock_svc import init_stock_tables
+
+        init_stock_tables(conn)
 
 
 def new_id() -> str:

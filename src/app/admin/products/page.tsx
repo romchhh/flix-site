@@ -24,7 +24,7 @@ export default async function AdminProducts() {
           <div className="tw">
             <table>
               <thead>
-                <tr><th>Товар</th><th>Категорія</th><th>Режим</th><th>Від</th></tr>
+                <tr><th>Товар</th><th>Категорія</th><th>Режим</th><th>Автовидача</th><th>Від</th></tr>
               </thead>
               <tbody>
                 {products.map((p) => {
@@ -41,6 +41,7 @@ export default async function AdminProducts() {
                       </td>
                       <td className="muted">{p.categoryName}</td>
                       <td>{p.recurring ? "автосписання" : "разова"}</td>
+                      <td>{p.autoIssue ? "склад" : "менеджер"}</td>
                       <td className="n">{cheapest ? `${uah(cheapest.total)} ₴` : "—"}</td>
                     </tr>
                   );

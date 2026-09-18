@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -31,6 +31,7 @@ type Sub = {
   profileName: string | null;
   pin: string | null;
   login: string | null;
+  password: string | null;
   hasTotp: boolean;
   startsAt: string;
   expiresAt: string;
@@ -49,7 +50,16 @@ export function SubCard({ sub }: { sub: Sub }) {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [code, setCode] = useState<string | null>(null);
+  const [codeLeft, setCodeLeft] = useState(0);
+  const [codeBusy, setCodeBusy] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!code || codeLeft <= 0) return;
+    const timer = setInterval(() => setCodeLeft((v) => Math.max(0, v - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [code, codeLeft]);
 
   const exp = new Date(sub.expiresAt);
   const left = daysLeft(exp);
@@ -59,6 +69,25 @@ export function SubCard({ sub }: { sub: Sub }) {
   const cardLabel = formatCard(sub.maskedCard, sub.cardType);
   const nextPay = sub.nextPaymentAt ? new Date(sub.nextPaymentAt) : null;
   const charges = sub.charges ?? [];
+
+  async function fetchCode() {
+    setCodeBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/subs/${sub.id}/code`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Не вдалось отримати код");
+        return;
+      }
+      setCode(data.code);
+      setCodeLeft(data.secondsLeft ?? 30);
+    } catch {
+      setError("Мережа не відповідає");
+    } finally {
+      setCodeBusy(false);
+    }
+  }
 
   async function cancel() {
     setBusy(true);
@@ -148,9 +177,14 @@ export function SubCard({ sub }: { sub: Sub }) {
             <a className="btn sm soft" href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">
               Менеджер
             </a>
-            {sub.login && (
+            {(sub.login || sub.password) && (
               <button className="btn sm soft" type="button" onClick={() => setOpenCreds(!openCreds)}>
                 Дані для входу<span className="dot"><Chevron /></span>
+              </button>
+            )}
+            {sub.hasTotp && (
+              <button className="btn sm soft" type="button" onClick={fetchCode} disabled={codeBusy}>
+                {codeBusy ? "Код…" : "Код 2FA"}
               </button>
             )}
             {sub.recurring && (
@@ -177,13 +211,26 @@ export function SubCard({ sub }: { sub: Sub }) {
             </div>
           )}
 
+          {code && (
+            <div className="code-box">
+              <b>{code}</b>
+              <small>{codeLeft} с</small>
+            </div>
+          )}
+
           {openCreds && (
             <div className="creds">
               {sub.login && <div className="row"><span>Логін</span><b>{sub.login}</b></div>}
+              {sub.password && <div className="row"><span>Пароль</span><b>{sub.password}</b></div>}
               <p className="tip">
-                Доступ після оплати надсилає{" "}
-                <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджер @kinomanage</a>.
-                Пише «сервіс недоступний у вашому регіоні»? Вмикай{" "}
+                {sub.password
+                  ? "Не передавай дані третім особам. Якщо сервіс просить код — натисни «Код 2FA»."
+                  : "Доступ після оплати надсилає "}
+                {!sub.password && (
+                  <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджер @kinomanage</a>
+                )}
+                {!sub.password && "."}
+                {" "}Пише «сервіс недоступний у вашому регіоні»? Вмикай{" "}
                 <a href="https://t.me/FlixVPNBot">FlixVPN</a>.
               </p>
             </div>

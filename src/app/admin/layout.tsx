@@ -32,6 +32,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin/orders">Платежі</Link>
           <div className="adm-lbl">КАТАЛОГ</div>
           <Link href="/admin/products">Товари</Link>
+          <Link href="/admin/stock">Склад</Link>
           <Link href="/admin/categories">Категорії</Link>
           <div className="adm-lbl">ЛЮДИ</div>
           <Link href="/admin/clients">Клієнти</Link>

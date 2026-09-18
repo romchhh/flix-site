@@ -116,9 +116,15 @@ export default async function Cabinet({ searchParams }:
         <div className="import">
           <div className="grow">
             <b>Оплату отримано</b>
-            <p>Менеджер <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer" style={{ color: "#A9C4FF", fontWeight: 800 }}>@kinomanage</a> надішле доступ у Telegram. Підписка вже в кабінеті.</p>
+            <p>
+              {active.some((s) => s.login || s.password)
+                ? "Дані для входу вже в картці підписки нижче. Якщо потрібен код 2FA — натисни «Код 2FA»."
+                : <>Менеджер <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer" style={{ color: "#A9C4FF", fontWeight: 800 }}>@kinomanage</a> надішле доступ у Telegram. Підписка вже в кабінеті.</>}
+            </p>
           </div>
-          <a className="btn" href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">Написати менеджеру<span className="dot"><Arrow /></span></a>
+          {!active.some((s) => s.login || s.password) && (
+            <a className="btn" href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">Написати менеджеру<span className="dot"><Arrow /></span></a>
+          )}
         </div>
       )}
 
@@ -158,8 +164,9 @@ export default async function Cabinet({ searchParams }:
                   months: s.months,
                   profileName: s.kind === "recurring" ? "автосписання" : null,
                   pin: null,
-                  login: null,
-                  hasTotp: false,
+                  login: s.login ?? null,
+                  password: s.password ?? null,
+                  hasTotp: Boolean(s.hasTotp),
                   startsAt: s.startsAt,
                   expiresAt: s.expiresAt,
                   source: s.source || "site",

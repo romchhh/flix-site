@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 
-from . import bot_client
+from . import bot_client, stock_svc
 from .bot_client import BotAPIError
 from .db import db, now
 
@@ -209,6 +209,8 @@ async def sync_payment_to_bot(row: dict) -> bool:
             (now(), row["invoice_id"]),
         )
     log.info("synced payment %s to bot (status=%s)", row.get("invoice_id"), row.get("status"))
+    if (row.get("status") or "").lower() in _PAID:
+        await stock_svc.process_paid_payment(row)
     return True
 
 
@@ -237,6 +239,8 @@ async def handle_mono_webhook(payload: dict) -> None:
         if row and not row.get("synced_to_bot"):
             await sync_payment_to_bot(row)
             return
+        if row and status in _PAID:
+            await stock_svc.process_paid_payment(row)
     await forward_mono_to_bot(payload)
 
 

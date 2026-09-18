@@ -77,6 +77,7 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 MAIL_FROM = os.getenv("MAIL_FROM", "flixмаркет <hello@flixmarket.com>")
 DB_PATH = os.getenv("SITE_DATABASE_PATH") or str(Path(__file__).resolve().parent / "data" / "site.db")
+CREDENTIALS_KEY = (os.getenv("CREDENTIALS_KEY") or "").strip()
 MONO_XTOKEN = (os.getenv("MONO_XTOKEN") or "").strip()
 COOKIE_NAME = "flix_session"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "1" if APP_URL.startswith("https://") else "0") == "1"

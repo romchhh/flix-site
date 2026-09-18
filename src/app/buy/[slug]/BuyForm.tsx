@@ -48,7 +48,7 @@ export function BuyForm({ productId, slug, options, loggedIn, free, recurring = 
 
   return (
     <div>
-      <h3 style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.02em", marginBottom: 16 }}>
+      <h3 className="buy-form-title">
         {recurring ? "Помісячна підписка" : "Обери строк"}
       </h3>
 
@@ -78,41 +78,42 @@ export function BuyForm({ productId, slug, options, loggedIn, free, recurring = 
         </button>
       ))}
 
-      <div style={{ marginTop: 16 }}>
+      <div className="buy-form-foot">
+        {free !== null && free > 0 && free <= 3 && (
+          <p className="tip" style={{ textAlign: "center" }}>
+            Лишилось {free} шт. за цією ціною
+          </p>
+        )}
 
-      <div className="total">
-        <span style={{ fontWeight: 700, color: "var(--muted)" }}>До сплати</span>
-        <b>{uah(chosen.total)} ₴</b>
+        {deliveryNote && <p className="tip" style={{ textAlign: "center" }}>{deliveryNote}</p>}
+
+        <p className="terms">
+          Оплата карткою через Monobank.
+          {recurring ? " Наступні списання — раз на місяць, тією ж карткою." : ""}
+        </p>
       </div>
 
-      {soldOut ? (
-        <>
-          <button className="btn block" disabled>Зараз немає в наявності</button>
-          <p className="tip" style={{ textAlign: "center" }}>
-            Напиши <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджеру @kinomanage</a> — скажемо, коли зʼявиться.
+      <div className="buy-pay-wrap">
+        <div className="buy-pay-inner">
+          <div className="buy-pay-total">
+            <span>До сплати</span>
+            <b>{uah(chosen.total)} ₴</b>
+          </div>
+          {soldOut ? (
+            <button className="btn buy-pay-btn" type="button" disabled>Немає в наявності</button>
+          ) : (
+            <button className="btn buy-pay-btn" type="button" onClick={pay} disabled={busy}>
+              {busy ? "Створюємо…" : loggedIn ? "До оплати" : "Увійти та оплатити"}
+              <span className="dot"><Arrow /></span>
+            </button>
+          )}
+        </div>
+        {error && <p className="err buy-pay-err">{error}</p>}
+        {soldOut && (
+          <p className="tip buy-pay-err">
+            Напиши <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджеру @kinomanage</a>.
           </p>
-        </>
-      ) : (
-        <button className="btn block" onClick={pay} disabled={busy}>
-          {busy ? "Створюємо рахунок…" : loggedIn ? "Перейти до оплати" : "Увійти та оплатити"}
-          <span className="dot"><Arrow /></span>
-        </button>
-      )}
-
-      {error && <p className="err">{error}</p>}
-
-      {free !== null && free > 0 && free <= 3 && (
-        <p className="tip" style={{ textAlign: "center" }}>
-          Лишилось {free} шт. за цією ціною
-        </p>
-      )}
-
-      {deliveryNote && <p className="tip" style={{ textAlign: "center" }}>{deliveryNote}</p>}
-
-      <p className="terms">
-        Оплата карткою через Monobank.
-        {recurring ? " Наступні списання — раз на місяць, тією ж карткою." : ""}
-      </p>
+        )}
       </div>
     </div>
   );
