@@ -6,10 +6,16 @@ import { ServiceIcon } from "@/components/ServiceIcon";
 import { Arrow, Chevron } from "@/components/Logo";
 import { dateUk, daysLeft, progress, plural } from "@/lib/display";
 
+const SOURCE_BADGE: Record<string, { label: string; cls: string }> = {
+  bot: { label: "бот", cls: "b-bot" },
+  site: { label: "сайт", cls: "b-site" },
+  miniapp: { label: "мінідодаток", cls: "b-mini" },
+};
+
 type Sub = {
   id: string; name: string; icon: string; color: string; slug: string;
   profileName: string | null; pin: string | null; login: string | null;
-  hasTotp: boolean; startsAt: string; expiresAt: string; fromBot: boolean;
+  hasTotp: boolean; startsAt: string; expiresAt: string; source?: string;
   recurring?: boolean; nextPaymentAt?: string;
 };
 
@@ -23,6 +29,7 @@ export function SubCard({ sub }: { sub: Sub }) {
   const left = daysLeft(exp);
   const pct = progress(new Date(sub.startsAt), exp);
   const soon = left <= 7;
+  const src = SOURCE_BADGE[sub.source || "bot"] || SOURCE_BADGE.bot;
 
   async function cancel() {
     if (!confirm("Скасувати автосписання? Доступ збережеться до кінця оплаченого періоду.")) return;
@@ -54,7 +61,7 @@ export function SubCard({ sub }: { sub: Sub }) {
             <p>{sub.profileName}{sub.pin ? ` · PIN ${sub.pin}` : ""}</p>
           )}
         </div>
-        {sub.fromBot && <span className="badge b-bot">з бота</span>}
+        <span className={`badge ${src.cls}`}>{src.label}</span>
         <span className={`badge ${soon ? "b-soon" : "b-ok"}`}>
           {soon ? `${left} ${plural(left, "день", "дні", "днів")}` : "активна"}
         </span>

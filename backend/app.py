@@ -1,6 +1,7 @@
 """Точка входу сайту: сесії, пошта, проксі до API бота."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -263,6 +264,39 @@ async def ensure_bot_user(conn, user_row) -> int | None:
         return None
     conn.execute("UPDATE users SET bot_user_id = ? WHERE id = ?", (uid, user_row["id"]))
     return int(uid)
+
+
+async def resolve_bot_user_id(user_row: dict, site_user_id: str) -> int | None:
+    """Повертає bot user id і зберігає його в site SQLite."""
+    if user_row.get("bot_user_id"):
+        return int(user_row["bot_user_id"])
+    if user_row.get("telegram_id"):
+        try:
+            created = await bot_client.ensure_user(
+                telegram_id=int(user_row["telegram_id"]),
+                username=user_row.get("telegram_name"),
+            )
+            bot_id = int(created.get("userId") or user_row["telegram_id"])
+            with db() as conn:
+                conn.execute("UPDATE users SET bot_user_id = ? WHERE id = ?", (bot_id, site_user_id))
+            return bot_id
+        except BotAPIError as e:
+            log.warning("resolve_bot_user_id telegram: %s", e)
+            return int(user_row["telegram_id"])
+    if user_row.get("email"):
+        try:
+            created = await bot_client.ensure_user(
+                email=user_row["email"],
+                username=user_row.get("telegram_name") or user_row["email"],
+            )
+            bot_id = created.get("userId")
+            if bot_id is not None:
+                with db() as conn:
+                    conn.execute("UPDATE users SET bot_user_id = ? WHERE id = ?", (int(bot_id), site_user_id))
+                return int(bot_id)
+        except BotAPIError as e:
+            log.warning("resolve_bot_user_id email: %s", e)
+    return None
 
 
 async def _telegram_from_bot_login(params: dict) -> tuple[dict, str] | None:
@@ -597,6 +631,69 @@ async def reset(request: Request):
     return set_cookie(JSONResponse({"ok": True}), user_id)
 
 
+@app.post("/api/auth/link")
+async def auth_link(request: Request):
+    uid = current_user_id(request)
+    if not uid:
+        return json_error("Unauthorized", 401)
+    try:
+        body = await request.json()
+    except Exception:
+        return json_error("Немає даних")
+    code = str(body.get("code") or "").strip().upper()
+    if len(code) < 4:
+        return json_error("Введи код з бота")
+
+    me = get_user(uid)
+    if not me:
+        return json_error("Unauthorized", 401)
+
+    try:
+        linked = await bot_client.consume_link_code(code)
+    except BotAPIError as e:
+        return json_error(e.message, e.status)
+
+    purchase_uid = int(linked.get("userId") or 0)
+    if not purchase_uid:
+        return json_error("Код недійсний", 400)
+
+    site_bot_id = await resolve_bot_user_id(me, uid)
+    if not site_bot_id:
+        return json_error("Спочатку увійди через email або Telegram", 400)
+
+    if int(site_bot_id) == purchase_uid:
+        subs = await bot_client.subscriptions(purchase_uid)
+        imported = len(subs.get("oneTime") or []) + len(subs.get("recurring") or [])
+        cache_id = int(me["telegram_id"] or purchase_uid)
+        save_bot_sub_cache(cache_id, subs)
+        return {"ok": True, "imported": imported}
+
+    try:
+        result = await bot_client.link_user(
+            int(site_bot_id),
+            purchase_uid,
+            me.get("telegram_name") or linked.get("username"),
+            me.get("email"),
+        )
+    except BotAPIError as e:
+        return json_error(e.message, e.status)
+
+    merged_id = int((result.get("user") or {}).get("userId") or purchase_uid)
+    imported = int(result.get("imported") or 0)
+    with db() as conn:
+        conn.execute("UPDATE users SET bot_user_id = ? WHERE id = ?", (merged_id, uid))
+        if not me.get("telegram_id") and purchase_uid > 0:
+            conn.execute(
+                "UPDATE users SET telegram_id = ?, telegram_name = COALESCE(telegram_name, ?) WHERE id = ?",
+                (purchase_uid, linked.get("username"), uid),
+            )
+    save_bot_sub_cache(int(me.get("telegram_id") or purchase_uid), {
+        "oneTime": result.get("oneTime") or [],
+        "recurring": result.get("recurring") or [],
+    })
+    return {"ok": True, "imported": imported}
+
+
 @app.post("/api/auth/telegram/start")
 async def telegram_start(request: Request):
     origin = resolve_request_origin(
@@ -731,11 +828,17 @@ async def checkout(request: Request):
         return json_error("Некоректна ціна")
     subscription = bool(item.get("recurring") or item.get("paymentType") == "subscription")
     origin = (request.headers.get("origin") or APP_URL or "").rstrip("/")
-    redirect_url = f"{origin or APP_URL}/cabinet"
 
     try:
-        created_user = await bot_client.ensure_user(telegram_id=int(telegram_id), username=username)
-        bot_uid = int(created_user.get("userId") or telegram_id)
+        bot_uid = await resolve_bot_user_id(me, uid)
+        if not bot_uid:
+            created_user = await bot_client.ensure_user(telegram_id=int(telegram_id), username=username)
+            bot_uid = int(created_user.get("userId") or telegram_id)
+            with db() as conn:
+                conn.execute("UPDATE users SET bot_user_id = ? WHERE id = ?", (bot_uid, uid))
+
+        payment_ref = f"site_{bot_uid}_{int(time.time())}"
+        redirect_url = f"{origin or APP_URL}/cabinet?order={payment_ref}"
         created = await monopay.create_invoice(
             user_id=bot_uid,
             product_name=item.get("name") or "Підписка",
@@ -743,18 +846,30 @@ async def checkout(request: Request):
             amount_uah=amount_uah,
             redirect_url=redirect_url,
             subscription=subscription,
+            payment_id=payment_ref,
         )
-        await bot_client.record_payment(
-            user_id=bot_uid,
-            product_id=product_id_int,
-            months=months,
-            amount=amount_uah,
-            invoice_id=created["invoice_id"],
-            payment_id=created["payment_id"],
-            payment_type=created["payment_type"],
-            wallet_id=created.get("wallet_id"),
-            username=username,
-        )
+        last_err: BotAPIError | None = None
+        for attempt in range(3):
+            try:
+                await bot_client.record_payment(
+                    user_id=bot_uid,
+                    product_id=product_id_int,
+                    months=months,
+                    amount=amount_uah,
+                    invoice_id=created["invoice_id"],
+                    payment_id=created["payment_id"],
+                    payment_type=created["payment_type"],
+                    wallet_id=created.get("wallet_id"),
+                    username=username,
+                )
+                last_err = None
+                break
+            except BotAPIError as e:
+                last_err = e
+                if attempt < 2:
+                    await asyncio.sleep(0.4 * (attempt + 1))
+        if last_err:
+            raise last_err
     except monopay.MonoError as e:
         return json_error(e.message, min(e.status, 502))
     except BotAPIError as e:
@@ -800,7 +915,7 @@ async def cabinet(request: Request, order: str | None = None):
     subs = {"oneTime": [], "recurring": []}
     pending = None
     bot_profile = None
-    bot_id = me["bot_user_id"] or me["telegram_id"]
+    bot_id = await resolve_bot_user_id(me, uid) or me["bot_user_id"] or me["telegram_id"]
     if bot_id:
         try:
             bot_profile = await bot_client.bot_user(int(bot_id))
@@ -847,7 +962,10 @@ async def cancel_sub(sub_id: str, request: Request):
     if not uid:
         return json_error("Unauthorized", 401)
     me = get_user(uid)
-    if not me or not me["bot_user_id"]:
+    if not me:
+        return json_error("Unauthorized", 401)
+    bot_id = await resolve_bot_user_id(me, uid) or me.get("bot_user_id") or me.get("telegram_id")
+    if not bot_id:
         return json_error("Спочатку привʼяжи Telegram або зроби покупку", 400)
     raw = sub_id.replace("rec-", "")
     try:
@@ -855,7 +973,7 @@ async def cancel_sub(sub_id: str, request: Request):
     except ValueError:
         return json_error("Некоректна підписка")
     try:
-        result = await bot_client.cancel_recurring(int(me["bot_user_id"]), bot_sub_id)
+        result = await bot_client.cancel_recurring(int(bot_id), bot_sub_id)
     except BotAPIError as e:
         return json_error(e.message, e.status)
     return result

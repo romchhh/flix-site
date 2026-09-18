@@ -135,7 +135,7 @@ export default async function Cabinet({ searchParams }:
                   hasTotp: false,
                   startsAt: s.startsAt,
                   expiresAt: s.expiresAt,
-                  fromBot: true,
+                  source: s.source || "site",
                   recurring: s.kind === "recurring" && s.status === "active",
                   nextPaymentAt: s.nextPaymentAt,
                 }} />

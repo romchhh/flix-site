@@ -64,6 +64,10 @@ async def ensure_user(*, email: str | None = None, telegram_id: int | None = Non
     return await bot_request("POST", "/api/v1/users", json=payload)
 
 
+async def consume_link_code(code: str):
+    return await bot_request("POST", "/api/v1/link-codes/consume", json={"code": code})
+
+
 async def link_user(site_user_id: int, telegram_id: int, username: str | None = None, email: str | None = None):
     return await bot_request(
         "POST",

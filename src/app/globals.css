@@ -212,6 +212,8 @@ input[aria-invalid="true"]{border-color:var(--red);background:#FDF3F3}
 .b-soon{background:#FDEDDF;color:#8A4208}
 .b-off{background:#F1F2F6;color:#5A6275}
 .b-bot{background:#E7EDFF;color:#1B3FB8}
+.b-site{background:#E8F5E9;color:#1B5E20}
+.b-mini{background:#FFF3E0;color:#E65100}
 .track{height:6px;border-radius:999px;background:var(--line);margin:18px 0 9px;overflow:hidden}
 .track i{display:block;height:100%;border-radius:999px;background:var(--blue)}
 .track i.warn{background:var(--orange)}

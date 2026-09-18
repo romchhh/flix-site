@@ -53,11 +53,12 @@ async def create_invoice(
     amount_uah: float,
     redirect_url: str,
     subscription: bool,
+    payment_id: str | None = None,
 ) -> dict:
     amount_kop = int(round(float(amount_uah) * 100))
     hook = webhook_url()
     if subscription:
-        local_id = f"subscription_{user_id}_{int(time.time())}"
+        local_id = payment_id or f"subscription_{user_id}_{int(time.time())}"
         wallet_id = f"wallet_{user_id}_{uuid.uuid4().hex[:8]}"
         payload = {
             "amount": amount_kop,
@@ -90,7 +91,7 @@ async def create_invoice(
             "payment_type": "subscription",
         }
 
-    local_id = f"order_{user_id}_{int(time.time())}"
+    local_id = payment_id or f"order_{user_id}_{int(time.time())}"
     payload = {
         "amount": amount_kop,
         "ccy": 980,
