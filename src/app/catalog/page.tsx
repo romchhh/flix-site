@@ -42,7 +42,7 @@ export default async function CatalogPage({ searchParams }: Props) {
   const listPath = cat ? `/catalog?cat=${encodeURIComponent(cat)}` : "/catalog";
 
   return (
-    <div className="wrap">
+    <>
       <JsonLd
         data={[
           breadcrumbJsonLd([
@@ -56,7 +56,7 @@ export default async function CatalogPage({ searchParams }: Props) {
         ]}
       />
       <SiteHeader />
-
+      <div className="wrap">
       <section style={{ paddingTop: 44, paddingBottom: 30 }}>
         <h1 className="h-sm" style={{ marginBottom: 10 }}>
           {current ? <>{current.name}</> : <>Усі<br /><em>підписки</em></>}
@@ -94,6 +94,7 @@ export default async function CatalogPage({ searchParams }: Props) {
       </section>
 
       <SiteFooter />
-    </div>
+      </div>
+    </>
   );
 }

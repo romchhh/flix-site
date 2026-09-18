@@ -21,13 +21,15 @@ export default async function LinkPage() {
   if (me.telegramId) redirect("/cabinet");
 
   return (
-    <div className="wrap-narrow">
+    <>
       <SiteHeader />
+      <div className="wrap-narrow">
       <h1 className="h-sm" style={{ margin: "28px 0 20px" }}>
         Підтягнути покупки<br />з <em>бота</em>
       </h1>
       <LinkForm botName={env.botName} />
       <SiteFooter />
-    </div>
+      </div>
+    </>
   );
 }

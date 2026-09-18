@@ -9,9 +9,11 @@ export async function SiteHeader() {
 
   return (
     <header className="site-header">
-      <div className="bar">
-        <Logo size={25} />
-        <SiteNav user={me} />
+      <div className="header-shell">
+        <div className="bar">
+          <Logo size={25} />
+          <SiteNav user={me} />
+        </div>
       </div>
     </header>
   );

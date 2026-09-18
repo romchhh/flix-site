@@ -56,7 +56,7 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
   const others = products.filter((p) => p.id !== product.id).slice(0, 4);
 
   return (
-    <div className="wrap">
+    <>
       <JsonLd
         data={[
           breadcrumbJsonLd([
@@ -69,7 +69,7 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
         ].filter(Boolean) as Record<string, unknown>[]}
       />
       <SiteHeader />
-
+      <div className="wrap">
       <p className="crumbs">
         <Link href="/catalog">Каталог</Link> → {product.name}
       </p>
@@ -182,6 +182,7 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
       </div>
 
       <SiteFooter />
-    </div>
+      </div>
+    </>
   );
 }

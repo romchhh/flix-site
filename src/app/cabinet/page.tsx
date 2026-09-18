@@ -67,9 +67,9 @@ export default async function Cabinet({ searchParams }:
   const pendingPaid = pending && ["success", "PAID"].includes(String(pending.status));
 
   return (
-    <div className="wrap-narrow">
+    <>
       <SiteHeader />
-
+      <div className="wrap-narrow">
       <h1 className="h-sm" style={{ margin: "28px 0 22px" }}>Мої<br /><em>підписки</em></h1>
 
       {me.telegramId && (
@@ -245,6 +245,7 @@ export default async function Cabinet({ searchParams }:
       </div>
 
       <SiteFooter />
-    </div>
+      </div>
+    </>
   );
 }

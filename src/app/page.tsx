@@ -31,7 +31,7 @@ export default async function Home() {
   const tiles = products.slice(0, 4);
 
   return (
-    <div className="wrap">
+    <>
       <JsonLd
         data={itemListJsonLd(products.filter((p) => p.visible), {
           name: "Каталог підписок flixмаркет",
@@ -39,7 +39,7 @@ export default async function Home() {
         })}
       />
       <SiteHeader />
-
+      <div className="wrap">
       <div style={{ padding: "56px 0 20px" }}>
         <div className="hero-grid" style={{ display: "grid", gridTemplateColumns: "1.1fr .9fr", gap: 40, alignItems: "center" }}>
           <div>
@@ -48,7 +48,7 @@ export default async function Home() {
               Оформив, зайшов, забув до наступного місяця. Купував у боті —
               воно теж підтягнеться сюди.
             </p>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 28 }}>
+            <div className="hero-acts">
               <Link className="btn" href="/catalog">Обрати підписку<span className="dot"><Arrow /></span></Link>
               <Link className="btn ghost" href="/cabinet">Мій кабінет<span className="dot"><Arrow /></span></Link>
             </div>
@@ -153,6 +153,7 @@ export default async function Home() {
       </section>
 
       <SiteFooter />
-    </div>
+      </div>
+    </>
   );
 }

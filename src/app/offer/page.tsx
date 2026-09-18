@@ -12,14 +12,16 @@ export const metadata: Metadata = pageMetadata({
 
 export default function OfferPage() {
   return (
-    <div className="wrap">
+    <>
       <SiteHeader />
+      <div className="wrap">
       <div className="legal">
         <h1 className="h-sm" style={{ margin: "28px 0 8px" }}>Публічна<br /><em>оферта</em></h1>
         <p className="legal-date">Оновлено {OFFER_UPDATED}</p>
         <div className="legal-body"><LegalText raw={OFFER} /></div>
       </div>
       <SiteFooter />
-    </div>
+      </div>
+    </>
   );
 }
