@@ -184,9 +184,10 @@ def current_user_id(request: Request) -> str | None:
     return read_session(request.cookies.get(COOKIE_NAME))
 
 
-def get_user(user_id: str):
+def get_user(user_id: str) -> dict | None:
     with db() as conn:
-        return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return dict(row) if row else None
 
 
 async def hydrate_telegram_photo(row) -> dict:
@@ -266,8 +267,12 @@ async def ensure_bot_user(conn, user_row) -> int | None:
     return int(uid)
 
 
-async def resolve_bot_user_id(user_row: dict, site_user_id: str) -> int | None:
+async def resolve_bot_user_id(user_row, site_user_id: str) -> int | None:
     """Повертає bot user id і зберігає його в site SQLite."""
+    if not user_row:
+        return None
+    if not isinstance(user_row, dict):
+        user_row = dict(user_row)
     if user_row.get("bot_user_id"):
         return int(user_row["bot_user_id"])
     if user_row.get("telegram_id"):
@@ -831,12 +836,11 @@ async def checkout(request: Request):
         product_id_int = int(product_id)
     except (TypeError, ValueError):
         return json_error("Некоректні дані замовлення")
-    with db() as conn:
-        me = conn.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
-        if not me:
-            return json_error("Unauthorized", 401)
-        telegram_id = me["telegram_id"]
-        username = me["telegram_name"] or me["email"]
+    me = get_user(uid)
+    if not me:
+        return json_error("Unauthorized", 401)
+    telegram_id = me.get("telegram_id")
+    username = me.get("telegram_name") or me.get("email")
     if not telegram_id:
         return json_error("Увійди через Telegram, щоб оплатити.")
 
@@ -987,7 +991,7 @@ async def cancel_sub(sub_id: str, request: Request):
     me = get_user(uid)
     if not me:
         return json_error("Unauthorized", 401)
-    bot_id = await resolve_bot_user_id(me, uid) or me.get("bot_user_id") or me.get("telegram_id")
+    bot_id = await resolve_bot_user_id(me, uid) or me["bot_user_id"] or me["telegram_id"]
     if not bot_id:
         return json_error("Спочатку привʼяжи Telegram або зроби покупку", 400)
     raw = sub_id.replace("rec-", "")
