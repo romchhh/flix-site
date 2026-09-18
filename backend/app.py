@@ -980,6 +980,7 @@ async def cabinet(request: Request, order: str | None = None):
         return json_error("Unauthorized", 401)
     me = await hydrate_telegram_photo(me)
     subs = {"oneTime": [], "recurring": []}
+    payments = []
     pending = None
     bot_profile = None
     bot_id = await resolve_bot_user_id(me, uid) or me["bot_user_id"] or me["telegram_id"]
@@ -995,6 +996,11 @@ async def cabinet(request: Request, order: str | None = None):
                 "recurring": live.get("recurring") or [],
             }
             save_bot_sub_cache(int(me["telegram_id"] or bot_id), subs)
+            try:
+                pay_data = await bot_client.user_payments(int(bot_id))
+                payments = pay_data.get("payments") or []
+            except BotAPIError as e:
+                log.warning("cabinet payments: %s", e)
             if order:
                 try:
                     pending = await bot_client.get_payment(order)
@@ -1015,10 +1021,17 @@ async def cabinet(request: Request, order: str | None = None):
                 "oneTime": cached.get("oneTime") or [],
                 "recurring": cached.get("recurring") or [],
             }
+    for bucket in (subs.get("oneTime") or [], subs.get("recurring") or []):
+        for sub in bucket:
+            pid = sub.get("productId")
+            if pid and not sub.get("photoUrl"):
+                sub["photoUrl"] = f"/api/media/product/{pid}"
+
     return {
         "user": user_public(me),
         "bot": bot_profile,
         "subscriptions": subs,
+        "payments": payments,
         "pending": pending,
     }
 

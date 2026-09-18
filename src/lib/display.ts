@@ -30,9 +30,11 @@ export const dateTimeUk = (d: Date) => {
   return `${dateUk(d)} о ${hh}:${mm}`;
 };
 
-export function productPhotoUrl(photoUrl?: string | null, productId?: string) {
-  if (photoUrl) return photoUrl.replace("/api/v1/media/", "/api/media/");
-  if (productId) return `/api/media/product/${productId}`;
+export function productPhotoUrl(photoUrl?: string | null, productId?: string | number | null) {
+  const idFromUrl = photoUrl?.match(/\/product\/(\d+)/)?.[1];
+  const id = (productId != null && String(productId)) || idFromUrl;
+  if (id) return `/api/media/product/${id}`;
+  if (photoUrl?.startsWith("/api/media/")) return photoUrl;
   return null;
 }
 
@@ -41,7 +43,22 @@ export function formatCard(masked?: string | null, type?: string | null) {
   const digits = masked.replace(/\D/g, "");
   const last4 = digits.slice(-4);
   const label = last4 ? `•••• ${last4}` : masked;
-  return type ? `${label} · ${type}` : label;
+  const raw = (type || "").trim();
+  const known = raw && !/^(unknown|none|null|n\/a)$/i.test(raw);
+  return known ? `${label} · ${raw.toUpperCase()}` : label;
+}
+
+const PAY_STATUS: Record<string, string> = {
+  success: "Успішно",
+  failed: "Невдало",
+  error: "Помилка",
+  processing: "В обробці",
+  pending: "Очікується",
+};
+
+export function payStatusLabel(status?: string | null) {
+  const key = (status || "").toLowerCase();
+  return PAY_STATUS[key] || status || "—";
 }
 
 export function daysLeft(expiresAt: Date): number {

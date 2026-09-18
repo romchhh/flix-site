@@ -6,12 +6,13 @@ import { backendJson } from "@/lib/backend";
 import { SiteHeader, SiteFooter } from "@/components/SiteHeader";
 import { Arrow, TgIcon } from "@/components/Logo";
 import { SubCard } from "./SubCard";
+import { PaymentHistory } from "./PaymentHistory";
 import { ServiceIcon } from "@/components/ServiceIcon";
 import { VerifyBar } from "./VerifyBar";
 import { LogoutButton } from "@/components/LogoutButton";
 import { pageMetadata, SUPPORT_TG } from "@/lib/seo";
 import { productPhotoUrl } from "@/lib/display";
-import type { BotSubscription, SiteUser } from "@/lib/types";
+import type { BillingEntry, BotSubscription, SiteUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +27,20 @@ type CabinetData = {
   user: SiteUser;
   bot: { userId?: number; username?: string | null; joinDate?: string | null; source?: string | null } | null;
   subscriptions: { oneTime: BotSubscription[]; recurring: BotSubscription[] };
+  payments?: BillingEntry[];
   pending: { payment_id?: string; invoice_id?: string; status?: string; product_id?: number } | null;
 };
+
+function subBotId(id: string): number | null {
+  const m = id.match(/^rec-(\d+)$/);
+  return m ? Number(m[1]) : null;
+}
+
+function chargesForSub(payments: BillingEntry[], subId: string) {
+  const botId = subBotId(subId);
+  if (!botId) return [];
+  return payments.filter((p) => p.kind === "charge" && p.subscriptionId === botId);
+}
 
 export default async function Cabinet({ searchParams }:
   { searchParams: Promise<{ order?: string; verified?: string }> }) {
@@ -49,6 +62,7 @@ export default async function Cabinet({ searchParams }:
   const past = all.filter(expired);
   const active = all.filter((s) => !expired(s));
   const hasVpn = active.some((s) => /vpn/i.test(s.name || "") || s.slug.includes("vpn"));
+  const payments = data?.payments ?? [];
   const pending = data?.pending ?? null;
   const pendingOpen = pending && (pending.status === "pending" || pending.status === "PENDING");
   const pendingPaid = pending && ["success", "PAID"].includes(String(pending.status));
@@ -155,8 +169,15 @@ export default async function Cabinet({ searchParams }:
                   photoUrl: s.photoUrl,
                   maskedCard: s.maskedCard,
                   cardType: s.cardType,
+                  charges: chargesForSub(payments, s.id),
                 }} />
               ))}
+            </div>
+          )}
+
+          {payments.length > 0 && (
+            <div style={{ marginTop: active.length ? 28 : 0 }}>
+              <PaymentHistory items={payments} />
             </div>
           )}
 
@@ -178,32 +199,31 @@ export default async function Cabinet({ searchParams }:
                 {past.map((s) => {
                   const photo = productPhotoUrl(s.photoUrl, s.productId);
                   return (
-                  <div className="sub sub-v2 sub-arch" key={s.id}>
-                    <div className="sub-head">
-                      <div className="sub-visual">
-                        {photo ? (
-                          <img className="sub-photo" src={photo} alt="" />
-                        ) : (
-                          <span className="sub-fallback" style={{ opacity: .7 }}>
-                            <ServiceIcon slug={s.icon} color={s.color} letter={s.name.charAt(0)} size={40} />
-                          </span>
-                        )}
-                      </div>
-                      <div className="sub-main">
-                        <div className="sub-title-row">
-                          <div>
-                            <h3>{s.name}</h3>
-                            <p className="sub-price-line">
-                              {s.expiresAt
-                                ? `діяла до ${new Date(s.expiresAt).toLocaleDateString("uk-UA")}`
-                                : "завершена"}
-                              {s.price != null ? ` · ${s.price}₴` : ""}
-                            </p>
-                          </div>
-                          <span className="badge b-off">архів</span>
+                  <article className="sub sub-v2 sub-arch" key={s.id}>
+                    <div className={`sub-cover${photo ? "" : " no-photo"}`}>
+                      {photo ? (
+                        <img className="sub-cover-img" src={photo} alt="" />
+                      ) : (
+                        <div className="sub-cover-fallback" style={{ background: `linear-gradient(145deg, ${s.color}18 0%, ${s.color}33 100%)`, opacity: .85 }}>
+                          <ServiceIcon slug={s.icon} color={s.color} letter={s.name.charAt(0)} size={44} />
                         </div>
+                      )}
+                      <div className="sub-cover-badges">
+                        <span className="badge b-off">архів</span>
                       </div>
                     </div>
+                    <div className="sub-body">
+                      <header className="sub-body-head">
+                        <div>
+                          <h3>{s.name}</h3>
+                          <p className="sub-price-line">
+                            {s.expiresAt
+                              ? `діяла до ${new Date(s.expiresAt).toLocaleDateString("uk-UA")}`
+                              : "завершена"}
+                            {s.price != null ? ` · ${s.price}₴` : ""}
+                          </p>
+                        </div>
+                      </header>
                     <div className="acts">
                       {s.slug ? (
                         <Link className="btn sm" href={`/buy/${s.slug}`}>
@@ -215,7 +235,8 @@ export default async function Cabinet({ searchParams }:
                         </Link>
                       )}
                     </div>
-                  </div>
+                    </div>
+                  </article>
                   );
                 })}
               </div>

@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ServiceIcon } from "@/components/ServiceIcon";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { PaymentHistory } from "./PaymentHistory";
 import { Arrow, Chevron } from "@/components/Logo";
 import {
   dateUk, dateTimeUk, daysLeft, progress, plural,
   productPhotoUrl, formatCard,
 } from "@/lib/display";
 import { SUPPORT_TG } from "@/lib/seo";
+import type { BillingEntry } from "@/lib/types";
 
 const SOURCE_BADGE: Record<string, { label: string; cls: string }> = {
   bot: { label: "бот", cls: "b-bot" },
@@ -38,10 +40,12 @@ type Sub = {
   photoUrl?: string | null;
   maskedCard?: string | null;
   cardType?: string | null;
+  charges?: BillingEntry[];
 };
 
 export function SubCard({ sub }: { sub: Sub }) {
   const [openCreds, setOpenCreds] = useState(false);
+  const [openHistory, setOpenHistory] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +61,7 @@ export function SubCard({ sub }: { sub: Sub }) {
   const showPhoto = Boolean(photoSrc) && !imgFailed;
   const cardLabel = formatCard(sub.maskedCard, sub.cardType);
   const nextPay = sub.nextPaymentAt ? new Date(sub.nextPaymentAt) : null;
+  const charges = sub.charges ?? [];
 
   async function cancel() {
     setBusy(true);
@@ -79,116 +84,115 @@ export function SubCard({ sub }: { sub: Sub }) {
 
   return (
     <>
-      <div className="sub sub-v2">
-        <div className="sub-head">
-          <div className="sub-visual">
-            {showPhoto ? (
-              <img
-                className="sub-photo"
-                src={photoSrc!}
-                alt=""
-                onError={() => setImgFailed(true)}
-              />
-            ) : (
-              <span className="sub-fallback">
-                <ServiceIcon slug={sub.icon} color={sub.color} letter={sub.name.charAt(0)} size={44} />
-              </span>
+      <article className="sub sub-v2">
+        <div className={`sub-cover${showPhoto ? "" : " no-photo"}`}>
+          {showPhoto ? (
+            <img className="sub-cover-img" src={photoSrc!} alt="" onError={() => setImgFailed(true)} />
+          ) : (
+            <div className="sub-cover-fallback" style={{ background: `linear-gradient(145deg, ${sub.color}22 0%, ${sub.color}44 100%)` }}>
+              <ServiceIcon slug={sub.icon} color={sub.color} letter={sub.name.charAt(0)} size={52} />
+            </div>
+          )}
+          <div className="sub-cover-badges">
+            <span className={`badge ${src.cls}`}>{src.label}</span>
+            <span className={`badge ${soon ? "b-soon" : "b-ok"}`}>
+              {soon ? `${left} ${plural(left, "день", "дні", "днів")}` : "активна"}
+            </span>
+          </div>
+        </div>
+
+        <div className="sub-body">
+          <header className="sub-body-head">
+            <div>
+              <h3>{sub.name}</h3>
+              <p className="sub-price-line">
+                {sub.price != null ? `${sub.price}₴` : ""}
+                {sub.recurring && sub.months ? ` · кожні ${sub.months} міс` : ""}
+              </p>
+            </div>
+          </header>
+
+          <div className="sub-stats">
+            {sub.recurring && nextPay && (
+              <div className="sub-stat">
+                <small>Наступне списання</small>
+                <b>{dateTimeUk(nextPay)}</b>
+              </div>
+            )}
+            {sub.recurring && (
+              <div className="sub-stat">
+                <small>Картка</small>
+                <b>{cardLabel || "не привʼязана"}</b>
+              </div>
+            )}
+            <div className="sub-stat">
+              <small>Доступ до</small>
+              <b>{dateUk(exp)}</b>
+            </div>
+            <div className="sub-stat">
+              <small>Залишилось</small>
+              <b>{left > 0 ? `${left} ${plural(left, "день", "дні", "днів")}` : "сьогодні"}</b>
+            </div>
+          </div>
+
+          <div className="track"><i className={soon ? "warn" : ""} style={{ width: `${pct}%` }} /></div>
+
+          {sub.recurring && charges.length > 0 && (
+            <div className="sub-history-wrap">
+              <button type="button" className="sub-history-toggle" onClick={() => setOpenHistory(!openHistory)}>
+                Історія списань ({charges.length})
+                <span className={`chev${openHistory ? " open" : ""}`}><Chevron /></span>
+              </button>
+              {openHistory && <PaymentHistory items={charges} title="" limit={20} compact />}
+            </div>
+          )}
+
+          <div className="acts">
+            <a className="btn sm soft" href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">
+              Менеджер
+            </a>
+            {sub.login && (
+              <button className="btn sm soft" type="button" onClick={() => setOpenCreds(!openCreds)}>
+                Дані для входу<span className="dot"><Chevron /></span>
+              </button>
+            )}
+            {sub.recurring && (
+              <button
+                className="btn sm soft"
+                type="button"
+                onClick={() => { setError(null); setConfirmCancel(true); }}
+                disabled={busy}
+              >
+                Вимкнути автосписання
+              </button>
+            )}
+            {soon && sub.slug && (
+              <Link className="btn sm" href={`/buy/${sub.slug}`}>
+                Продовжити<span className="dot"><Arrow /></span>
+              </Link>
             )}
           </div>
 
-          <div className="sub-main">
-            <div className="sub-title-row">
-              <div>
-                <h3>{sub.name}</h3>
-                <p className="sub-price-line">
-                  {sub.price != null ? `${sub.price}₴` : ""}
-                  {sub.recurring && sub.months ? ` · кожні ${sub.months} міс` : ""}
-                </p>
-              </div>
-              <div className="sub-badges">
-                <span className={`badge ${src.cls}`}>{src.label}</span>
-                <span className={`badge ${soon ? "b-soon" : "b-ok"}`}>
-                  {soon ? `${left} ${plural(left, "день", "дні", "днів")}` : "активна"}
-                </span>
-              </div>
+          {error && (
+            <div className="sub-alert" role="alert">
+              <b>Не вдалось</b>
+              <p>{error}</p>
             </div>
+          )}
 
-            <div className="sub-facts">
-              {sub.recurring && nextPay && (
-                <div className="sub-fact">
-                  <small>Наступне списання</small>
-                  <b>{dateTimeUk(nextPay)}</b>
-                </div>
-              )}
-              {sub.recurring && (
-                <div className="sub-fact">
-                  <small>Привʼязана картка</small>
-                  <b>{cardLabel || "не привʼязана"}</b>
-                </div>
-              )}
-              <div className="sub-fact">
-                <small>Доступ до</small>
-                <b>{dateUk(exp)}</b>
-              </div>
-              <div className="sub-fact">
-                <small>Залишилось</small>
-                <b>
-                  {left > 0
-                    ? `${left} ${plural(left, "день", "дні", "днів")}`
-                    : "спливає сьогодні"}
-                </b>
-              </div>
+          {openCreds && (
+            <div className="creds">
+              {sub.login && <div className="row"><span>Логін</span><b>{sub.login}</b></div>}
+              <p className="tip">
+                Доступ після оплати надсилає{" "}
+                <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджер @kinomanage</a>.
+                Пише «сервіс недоступний у вашому регіоні»? Вмикай{" "}
+                <a href="https://t.me/FlixVPNBot">FlixVPN</a>.
+              </p>
             </div>
-          </div>
-        </div>
-
-        <div className="track"><i className={soon ? "warn" : ""} style={{ width: `${pct}%` }} /></div>
-
-        <div className="acts">
-          <a className="btn sm soft" href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">
-            Менеджер
-          </a>
-          {sub.login && (
-            <button className="btn sm soft" type="button" onClick={() => setOpenCreds(!openCreds)}>
-              Дані для входу<span className="dot"><Chevron /></span>
-            </button>
-          )}
-          {sub.recurring && (
-            <button
-              className="btn sm soft"
-              type="button"
-              onClick={() => { setError(null); setConfirmCancel(true); }}
-              disabled={busy}
-            >
-              Вимкнути автосписання
-            </button>
-          )}
-          {soon && sub.slug && (
-            <Link className="btn sm" href={`/buy/${sub.slug}`}>
-              Продовжити<span className="dot"><Arrow /></span>
-            </Link>
           )}
         </div>
-
-        {error && (
-          <div className="sub-alert" role="alert">
-            <b>Не вдалось</b>
-            <p>{error}</p>
-          </div>
-        )}
-
-        {openCreds && (
-          <div className="creds">
-            {sub.login && <div className="row"><span>Логін</span><b>{sub.login}</b></div>}
-            <p className="tip">
-              Доступ після оплати надсилає{" "}
-              <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджер @kinomanage</a>.
-              Пише «сервіс недоступний у вашому регіоні»? Вмикай{" "}
-              <a href="https://t.me/FlixVPNBot">FlixVPN</a>.
-            </p>
-          </div>
-        )}
-      </div>
+      </article>
 
       <ConfirmDialog
         open={confirmCancel}

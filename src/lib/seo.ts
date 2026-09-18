@@ -136,8 +136,12 @@ export function rootMetadata(): Metadata {
       },
     },
     icons: {
-      icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
-      apple: [{ url: "/icon.svg" }],
+      icon: [
+        { url: "/icon.svg", type: "image/svg+xml" },
+        { url: "/icon.svg", sizes: "32x32", type: "image/svg+xml" },
+      ],
+      apple: [{ url: "/apple-icon.svg", type: "image/svg+xml" }],
+      shortcut: ["/icon.svg"],
     },
     other: {
       "theme-color": "#2B5CF6",

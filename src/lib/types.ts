@@ -77,3 +77,19 @@ export type BotSubscription = {
   maskedCard?: string | null;
   cardType?: string | null;
 };
+
+export type BillingEntry = {
+  id: string;
+  kind: "purchase" | "charge";
+  productName: string;
+  productId?: number | null;
+  months?: number | null;
+  amount: number;
+  status: string;
+  paymentType?: string;
+  source?: string;
+  invoiceId?: string | null;
+  subscriptionId?: number | null;
+  createdAt: string;
+  errorMessage?: string | null;
+};
