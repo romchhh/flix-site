@@ -13,20 +13,20 @@ export function openTelegram(url: string, botName: string) {
     catch { return ""; }
   })();
   const domain = botName.replace(/^@/, "");
+  // Спочатку deep-link у застосунок — саме з payload
   if (start) {
-    const native = document.createElement("iframe");
-    native.style.display = "none";
-    native.src = `tg://resolve?domain=${encodeURIComponent(domain)}&start=${encodeURIComponent(start)}`;
-    document.body.appendChild(native);
-    setTimeout(() => native.remove(), 2500);
+    window.location.href = `tg://resolve?domain=${encodeURIComponent(domain)}&start=${encodeURIComponent(start)}`;
   }
-  const a = document.createElement("a");
-  a.href = url;
-  a.target = "_blank";
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  // Fallback у браузері / якщо tg:// не спрацював
+  setTimeout(() => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, 400);
 }
 
 /**
@@ -41,6 +41,7 @@ export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
   const [busy, setBusy] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [botUrl, setBotUrl] = useState<string | null>(null);
+  const [payloadHint, setPayloadHint] = useState<string | null>(null);
 
   async function finish(data: { imported?: number; linked?: boolean }) {
     if (onDone) onDone(data);
@@ -87,6 +88,7 @@ export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
   async function viaBot() {
     setBusy(true);
     setError(null);
+    setPayloadHint(null);
     try {
       const res = await fetch("/api/auth/telegram/start", { method: "POST" });
       let data: { error?: string; url?: string; token?: string; ok?: boolean } = {};
@@ -104,6 +106,10 @@ export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
         setError("Некоректна відповідь сервера логіну.");
         return;
       }
+      try {
+        const start = new URL(data.url).searchParams.get("start") || "";
+        if (start) setPayloadHint(start);
+      } catch { /* ignore */ }
       setWaiting(true);
       setBotUrl(data.url);
       openTelegram(data.url, botName);
@@ -137,13 +143,21 @@ export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
       </button>
       {waiting && botUrl && (
         <p className="tg-note">
-          Якщо бот відкрився без кнопки Start —{" "}
-          <a href={botUrl} target="_blank" rel="noopener">відкрий посилання ще раз</a>
-          {" "}і натисни синю <b>Start</b>, не надсилай просто /start.
+          1) Відкрий{" "}
+          <a href={botUrl} target="_blank" rel="noopener">це посилання</a>
+          {" "}і натисни синю <b>Start</b>.
+          <br />
+          2) Не пиши /start вручну — тоді код входу зникає.
+          {payloadHint && (
+            <>
+              <br />
+              Якщо бот уже відкритий — надішли йому цей текст: <code>{payloadHint}</code>
+            </>
+          )}
         </p>
       )}
       <p className="tg-note">
-        {waiting ? "У Telegram натисни Start — і повернись сюди, кабінет відкриється сам." : label}
+        {waiting ? "Після Start у боті повернись сюди — кабінет відкриється сам." : label}
       </p>
       {error && <p className="err" style={{ textAlign: "center" }}>{error}</p>}
     </div>
