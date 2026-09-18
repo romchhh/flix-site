@@ -2,11 +2,20 @@
 const backend = process.env.SITE_BACKEND_URL || "http://127.0.0.1:8000";
 
 function allowedDevOrigins() {
-  const hosts = ["*.ngrok-free.dev", "*.ngrok.io", "*.ngrok.app", "*.ngrok-free.app"];
+  const hosts = [
+    "*.ngrok-free.dev", "*.ngrok.io", "*.ngrok.app", "*.ngrok-free.app",
+    "flix-market.com", "www.flix-market.com", "market.easyplayy.com",
+  ];
   try {
     if (process.env.APP_URL) hosts.push(new URL(process.env.APP_URL).hostname);
   } catch {
     /* ignore invalid APP_URL */
+  }
+  for (const raw of (process.env.SITE_ORIGINS || "").split(",")) {
+    try {
+      const host = new URL(raw.trim()).hostname;
+      if (host) hosts.push(host);
+    } catch { /* skip */ }
   }
   return [...new Set(hosts.filter(Boolean))];
 }

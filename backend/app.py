@@ -34,12 +34,16 @@ from .settings import (
     ADMIN_EMAILS,
     ADMIN_TELEGRAM_IDS,
     APP_URL,
+    COOKIE_DOMAIN,
     COOKIE_NAME,
     COOKIE_SECURE,
     MINIAPP_API_URL,
     SESSION_SECRET,
+    SITE_ORIGIN_PREFIXES,
+    SITE_ORIGINS,
     TELEGRAM_BOT_NAME,
     TELEGRAM_BOT_TOKEN,
+    resolve_request_origin,
 )
 
 log = logging.getLogger("flix.site")
@@ -48,7 +52,7 @@ logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="flixmarket site")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin for origin in [APP_URL, MINIAPP_API_URL, "http://localhost:3000", "http://127.0.0.1:3000"] if origin],
+    allow_origins=SITE_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -147,20 +151,26 @@ def read_session(token: str | None) -> str | None:
 
 
 def set_cookie(resp: Response, user_id: str):
-    resp.set_cookie(
-        COOKIE_NAME,
-        sign_session(user_id),
+    kwargs = dict(
+        key=COOKIE_NAME,
+        value=sign_session(user_id),
         httponly=True,
         secure=COOKIE_SECURE,
         samesite="lax",
         path="/",
         max_age=60 * 60 * 24 * 30,
     )
+    if COOKIE_DOMAIN:
+        kwargs["domain"] = COOKIE_DOMAIN
+    resp.set_cookie(**kwargs)
     return resp
 
 
 def clear_cookie(resp: JSONResponse):
-    resp.delete_cookie(COOKIE_NAME, path="/")
+    if COOKIE_DOMAIN:
+        resp.delete_cookie(COOKIE_NAME, path="/", domain=COOKIE_DOMAIN)
+    else:
+        resp.delete_cookie(COOKIE_NAME, path="/")
     return resp
 
 
@@ -218,6 +228,9 @@ def telegram_start_payload(token: str, origin: str) -> str:
     for suffix, prefix in NGROK_SUFFIXES:
         if host.endswith(suffix):
             return f"{prefix}{token}{host[: -len(suffix)]}"
+    prefix = SITE_ORIGIN_PREFIXES.get(host)
+    if prefix:
+        return f"{prefix}{token}"
     return f"w0{token}"
 
 
@@ -585,17 +598,22 @@ async def reset(request: Request):
 
 
 @app.post("/api/auth/telegram/start")
-async def telegram_start():
+async def telegram_start(request: Request):
+    origin = resolve_request_origin(
+        request.headers.get("origin") or "",
+        request.headers.get("referer") or "",
+        request.headers.get("x-forwarded-host") or request.headers.get("host") or "",
+    )
     token = secrets.token_hex(8)
     try:
-        data = await bot_client.start_web_login(APP_URL)
+        data = await bot_client.start_web_login(origin)
         token = data.get("token") or token
     except BotAPIError as e:
         log.info("web-login via bot API skipped: %s", e)
-    save_telegram_login(token, APP_URL)
+    save_telegram_login(token, origin)
     bot = (TELEGRAM_BOT_NAME or "FlixMarketBot").lstrip("@")
-    payload = telegram_start_payload(token, APP_URL)
-    return {"ok": True, "token": token, "url": f"https://t.me/{bot}?start={payload}"}
+    payload = telegram_start_payload(token, origin)
+    return {"ok": True, "token": token, "url": f"https://t.me/{bot}?start={payload}", "origin": origin}
 
 
 def _telegram_from_signed(params: dict) -> tuple[dict, str] | None:
@@ -640,8 +658,15 @@ async def telegram_callback(request: Request):
         )
     tg, username = parsed
     photo = (tg.get("photo_url") or "").strip() or None
+    login_token = str(params.get("login_token") or "").strip()
+    redirect_base = APP_URL
+    if login_token:
+        row = get_telegram_login(login_token)
+        origin = (row or {}).get("origin") or ""
+        if origin and origin in SITE_ORIGINS:
+            redirect_base = origin
     return await complete_telegram_session(
-        request, tg["id"], username, photo, redirect_to=f"{APP_URL}/cabinet",
+        request, tg["id"], username, photo, redirect_to=f"{redirect_base}/cabinet",
     )
 
 

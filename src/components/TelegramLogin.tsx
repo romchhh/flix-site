@@ -89,16 +89,30 @@ export function TelegramLogin({ botName, label, onDone, next = "/cabinet" }:
     setError(null);
     try {
       const res = await fetch("/api/auth/telegram/start", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "Не вдалось відкрити Telegram"); return; }
+      let data: { error?: string; url?: string; token?: string; ok?: boolean } = {};
+      try { data = await res.json(); } catch { /* non-json */ }
+      if (!res.ok) {
+        setError(
+          data.error
+          ?? (res.status >= 500
+            ? "Сервер API не відповідає. Перевір, що FastAPI (порт 8000) запущений."
+            : "Не вдалось відкрити Telegram"),
+        );
+        return;
+      }
+      if (!data.url || !data.token) {
+        setError("Некоректна відповідь сервера логіну.");
+        return;
+      }
       setWaiting(true);
       setBotUrl(data.url);
       openTelegram(data.url, botName);
       const started = Date.now();
       while (Date.now() - started < 10 * 60 * 1000) {
         await new Promise((r) => setTimeout(r, 1500));
-        const st = await fetch(`/api/auth/telegram/status?token=${encodeURIComponent(data.token)}`);
-        const body = await st.json();
+        const st = await fetch(`/api/auth/telegram/status?token=${encodeURIComponent(data.token!)}`);
+        let body: { error?: string; status?: string; ok?: boolean; login?: boolean } = {};
+        try { body = await st.json(); } catch { continue; }
         if (!st.ok) { setError(body.error ?? "Не вдалось перевірити вхід"); break; }
         if (body.status === "expired") { setError("Посилання протухло. Натисни кнопку ще раз."); break; }
         if (body.ok || body.login) { await finish(body); return; }
