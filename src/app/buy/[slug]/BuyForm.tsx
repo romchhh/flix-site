@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import type { Plan } from "@/lib/plan-types";
 import { uah } from "@/lib/display";
 import { Arrow } from "@/components/Logo";
+import { SUPPORT_TG } from "@/lib/seo";
 
 export function BuyForm({ productId, slug, options, loggedIn, free, recurring = false, deliveryNote = "" }:
   { productId: string; slug: string; options: Plan[]; loggedIn: boolean; free: number | null;
@@ -40,7 +41,7 @@ export function BuyForm({ productId, slug, options, loggedIn, free, recurring = 
     return (
       <div>
         <h3 style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>Ціни ще не виставлені</h3>
-        <p className="muted">Цей товар поки не продається. Напиши в <a href="https://t.me/kinomanage" style={{ color: "var(--blue)", fontWeight: 800 }}>підтримку</a> — скажемо, коли зʼявиться.</p>
+        <p className="muted">Цей товар поки не продається. Напиши <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer" style={{ color: "var(--blue)", fontWeight: 800 }}>менеджеру @kinomanage</a> — скажемо, коли зʼявиться.</p>
       </div>
     );
   }
@@ -88,7 +89,7 @@ export function BuyForm({ productId, slug, options, loggedIn, free, recurring = 
         <>
           <button className="btn block" disabled>Зараз немає в наявності</button>
           <p className="tip" style={{ textAlign: "center" }}>
-            Напиши в <a href="https://t.me/kinomanage">підтримку</a> — скажемо, коли зʼявиться.
+            Напиши <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджеру @kinomanage</a> — скажемо, коли зʼявиться.
           </p>
         </>
       ) : (

@@ -24,6 +24,26 @@ const MONTHS = ["січня","лютого","березня","квітня","т�
 
 export const dateUk = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()]}`;
 
+export const dateTimeUk = (d: Date) => {
+  const hh = d.getHours().toString().padStart(2, "0");
+  const mm = d.getMinutes().toString().padStart(2, "0");
+  return `${dateUk(d)} о ${hh}:${mm}`;
+};
+
+export function productPhotoUrl(photoUrl?: string | null, productId?: string) {
+  if (photoUrl) return photoUrl.replace("/api/v1/media/", "/api/media/");
+  if (productId) return `/api/media/product/${productId}`;
+  return null;
+}
+
+export function formatCard(masked?: string | null, type?: string | null) {
+  if (!masked) return null;
+  const digits = masked.replace(/\D/g, "");
+  const last4 = digits.slice(-4);
+  const label = last4 ? `•••• ${last4}` : masked;
+  return type ? `${label} · ${type}` : label;
+}
+
 export function daysLeft(expiresAt: Date): number {
   return Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / 86400_000));
 }

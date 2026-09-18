@@ -6,9 +6,11 @@ import { backendJson } from "@/lib/backend";
 import { SiteHeader, SiteFooter } from "@/components/SiteHeader";
 import { Arrow, TgIcon } from "@/components/Logo";
 import { SubCard } from "./SubCard";
+import { ServiceIcon } from "@/components/ServiceIcon";
 import { VerifyBar } from "./VerifyBar";
 import { LogoutButton } from "@/components/LogoutButton";
-import { pageMetadata } from "@/lib/seo";
+import { pageMetadata, SUPPORT_TG } from "@/lib/seo";
+import { productPhotoUrl } from "@/lib/display";
 import type { BotSubscription, SiteUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -101,9 +103,9 @@ export default async function Cabinet({ searchParams }:
         <div className="import">
           <div className="grow">
             <b>Оплату отримано</b>
-            <p>Менеджер надішле доступ у Telegram. Підписка вже в кабінеті.</p>
+            <p>Менеджер <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer" style={{ color: "#A9C4FF", fontWeight: 800 }}>@kinomanage</a> надішле доступ у Telegram. Підписка вже в кабінеті.</p>
           </div>
-          <a className="btn" href="https://t.me/FlixMarketBot">Написати<span className="dot"><Arrow /></span></a>
+          <a className="btn" href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">Написати менеджеру<span className="dot"><Arrow /></span></a>
         </div>
       )}
 
@@ -138,6 +140,9 @@ export default async function Cabinet({ searchParams }:
                   icon: s.icon,
                   color: s.color,
                   slug: s.slug,
+                  productId: s.productId,
+                  price: s.price,
+                  months: s.months,
                   profileName: s.kind === "recurring" ? "автосписання" : null,
                   pin: null,
                   login: null,
@@ -147,6 +152,9 @@ export default async function Cabinet({ searchParams }:
                   source: s.source || "site",
                   recurring: s.kind === "recurring" && s.status === "active",
                   nextPaymentAt: s.nextPaymentAt,
+                  photoUrl: s.photoUrl,
+                  maskedCard: s.maskedCard,
+                  cardType: s.cardType,
                 }} />
               ))}
             </div>
@@ -167,19 +175,34 @@ export default async function Cabinet({ searchParams }:
             <>
               <h2 style={{ fontSize: 22, margin: active.length ? "36px 0 14px" : "8px 0 14px" }}>Архів</h2>
               <div className="list">
-                {past.map((s) => (
-                  <div className="sub" key={s.id} style={{ opacity: .75 }}>
-                    <div className="sub-top">
-                      <div className="ttl">
-                        <h3>{s.name}</h3>
-                        <p>
-                          {s.expiresAt
-                            ? `діяла до ${new Date(s.expiresAt).toLocaleDateString("uk-UA")}`
-                            : "завершена"}
-                          {s.price != null ? ` · ${s.price}₴` : ""}
-                        </p>
+                {past.map((s) => {
+                  const photo = productPhotoUrl(s.photoUrl, s.productId);
+                  return (
+                  <div className="sub sub-v2 sub-arch" key={s.id}>
+                    <div className="sub-head">
+                      <div className="sub-visual">
+                        {photo ? (
+                          <img className="sub-photo" src={photo} alt="" />
+                        ) : (
+                          <span className="sub-fallback" style={{ opacity: .7 }}>
+                            <ServiceIcon slug={s.icon} color={s.color} letter={s.name.charAt(0)} size={40} />
+                          </span>
+                        )}
                       </div>
-                      <span className="badge b-off">архів</span>
+                      <div className="sub-main">
+                        <div className="sub-title-row">
+                          <div>
+                            <h3>{s.name}</h3>
+                            <p className="sub-price-line">
+                              {s.expiresAt
+                                ? `діяла до ${new Date(s.expiresAt).toLocaleDateString("uk-UA")}`
+                                : "завершена"}
+                              {s.price != null ? ` · ${s.price}₴` : ""}
+                            </p>
+                          </div>
+                          <span className="badge b-off">архів</span>
+                        </div>
+                      </div>
                     </div>
                     <div className="acts">
                       {s.slug ? (
@@ -193,7 +216,8 @@ export default async function Cabinet({ searchParams }:
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}

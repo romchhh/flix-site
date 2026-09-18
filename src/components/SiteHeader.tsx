@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Logo } from "./Logo";
 import { LogoutButton } from "./LogoutButton";
 import { currentUser } from "@/lib/session";
+import { SUPPORT_TG } from "@/lib/seo";
 
 export async function SiteHeader() {
   const me = await currentUser();
@@ -17,6 +18,7 @@ export async function SiteHeader() {
           <Link href="/catalog">Каталог</Link>
           <Link className="secondary" href="/#how">Як це працює</Link>
           <Link className="secondary" href="/#reviews">Відгуки</Link>
+          <a className="secondary" href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">Менеджер</a>
           {me?.isAdmin && <Link href="/admin">Адмінка</Link>}
           {me ? (
             <span className="me-wrap">
@@ -42,7 +44,7 @@ export async function SiteHeader() {
 export function SiteFooter() {
   const links = [
     { label: "Каталог", href: "/catalog" },
-    { label: "Підтримка", href: "https://t.me/kinomanage", note: "@kinomanage", external: true },
+    { label: "Менеджер", href: SUPPORT_TG, note: "@kinomanage", external: true },
     { label: "Telegram-бот", href: "https://t.me/FlixMarketBot", external: true },
     { label: "Наш VPN", href: "https://t.me/FlixVPNBot", external: true },
     { label: "Кабінет", href: "/cabinet" },

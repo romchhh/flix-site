@@ -11,7 +11,7 @@ import { JsonLd } from "@/components/JsonLd";
 import { priceCaption } from "@/lib/pricing";
 import { letterOf } from "@/lib/display";
 import { backendJson } from "@/lib/backend";
-import { itemListJsonLd, pageMetadata, SITE_DESCRIPTION } from "@/lib/seo";
+import { itemListJsonLd, pageMetadata, SITE_DESCRIPTION, SUPPORT_TG } from "@/lib/seo";
 import type { CatalogCategory, CatalogProduct } from "@/lib/types";
 import { CoverPhoto } from "@/components/CoverPhoto";
 
@@ -134,7 +134,7 @@ export default async function Home() {
           </div>
           <div className="card">
             <h3 style={{ fontSize: 19, fontWeight: 800, letterSpacing: "-.02em", marginBottom: 10 }}>Живий чат</h3>
-            <p>Відповідаємо самі, без ботів-автовідповідачів по колу. У робочий час — протягом 10 хвилин.</p>
+            <p>Відповідаємо самі, без ботів-автовідповідачів по колу. У робочий час — протягом 10 хвилин. <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer" style={{ color: "var(--blue)", fontWeight: 800 }}>@kinomanage</a></p>
           </div>
         </div>
       </section>

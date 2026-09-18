@@ -73,4 +73,7 @@ export type BotSubscription = {
   slug: string;
   icon: string;
   color: string;
+  photoUrl?: string | null;
+  maskedCard?: string | null;
+  cardType?: string | null;
 };
