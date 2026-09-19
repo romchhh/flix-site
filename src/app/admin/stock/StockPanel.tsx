@@ -1,13 +1,16 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type ProductRow = {
   id: string;
   name: string;
   autoIssue: boolean;
   stockFree: number;
+  needsProfilePin?: boolean;
 };
+
+type ProfileSlot = { num: string; pin: string };
 
 type CredentialRow = {
   id: string;
@@ -19,7 +22,16 @@ type CredentialRow = {
   slotsFree: number;
   note: string;
   active: boolean;
+  profileSlots?: Array<{ num: string }>;
 };
+
+function needsProfilePin(product?: ProductRow | null) {
+  return Boolean(product?.needsProfilePin || /hbo/i.test(product?.name || ""));
+}
+
+function emptyProfileSlots(count: number): ProfileSlot[] {
+  return Array.from({ length: Math.max(1, count) }, () => ({ num: "", pin: "" }));
+}
 
 async function api(path: string, init?: RequestInit) {
   const res = await fetch(path, {
@@ -49,9 +61,21 @@ export function StockPanel({
   const [totpSecret, setTotpSecret] = useState("");
   const [slotsTotal, setSlotsTotal] = useState(1);
   const [note, setNote] = useState("");
+  const [profileSlots, setProfileSlots] = useState<ProfileSlot[]>(emptyProfileSlots(1));
 
   const selected = products.find((p) => p.id === productId);
+  const profileProduct = needsProfilePin(selected);
   const rows = productId ? initial.filter((c) => c.productId === productId) : initial;
+
+  useEffect(() => {
+    setProfileSlots((prev) => {
+      const next = emptyProfileSlots(slotsTotal);
+      for (let i = 0; i < next.length; i += 1) {
+        next[i] = prev[i] || next[i];
+      }
+      return next;
+    });
+  }, [slotsTotal]);
 
   async function run(fn: () => Promise<void>) {
     setBusy(true);
@@ -65,6 +89,8 @@ export function StockPanel({
       setBusy(false);
     }
   }
+
+  const profileReady = !profileProduct || profileSlots.every((slot) => slot.num.trim() && slot.pin.trim());
 
   return (
     <>
@@ -131,11 +157,49 @@ export function StockPanel({
             <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
           </div>
         </div>
-        <div className="field">
-          <label>2FA ключ (base32, опційно)</label>
-          <input value={totpSecret} onChange={(e) => setTotpSecret(e.target.value)} placeholder="JBSWY3DPEHPK3PXP" />
-          <p className="muted" style={{ marginTop: 6 }}>Для ChatGPT та інших — клієнт отримає тимчасовий код у кабінеті.</p>
-        </div>
+
+        {profileProduct && (
+          <div className="field" style={{ marginTop: 4 }}>
+            <label>Профілі HBO</label>
+            <p className="muted" style={{ marginBottom: 10 }}>
+              Для кожного слота вкажи номер профілю та PIN-код. Клієнт отримає їх разом із логіном.
+            </p>
+            <div style={{ display: "grid", gap: 10 }}>
+              {profileSlots.map((slot, index) => (
+                <div key={index} className="f2">
+                  <div className="field">
+                    <label>Слот {index + 1} · номер профілю</label>
+                    <input
+                      value={slot.num}
+                      onChange={(e) => setProfileSlots((prev) => prev.map((item, i) => (
+                        i === index ? { ...item, num: e.target.value } : item
+                      )))}
+                      placeholder="2"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Слот {index + 1} · PIN</label>
+                    <input
+                      value={slot.pin}
+                      onChange={(e) => setProfileSlots((prev) => prev.map((item, i) => (
+                        i === index ? { ...item, pin: e.target.value } : item
+                      )))}
+                      placeholder="1234"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!profileProduct && (
+          <div className="field">
+            <label>2FA ключ (base32, опційно)</label>
+            <input value={totpSecret} onChange={(e) => setTotpSecret(e.target.value)} placeholder="JBSWY3DPEHPK3PXP" />
+            <p className="muted" style={{ marginTop: 6 }}>Для ChatGPT та інших — клієнт отримає тимчасовий код у кабінеті.</p>
+          </div>
+        )}
         <div className="field">
           <label>Примітка</label>
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="спільний акаунт, 4 користувача…" />
@@ -143,7 +207,7 @@ export function StockPanel({
         <button
           className="btn sm"
           type="button"
-          disabled={busy || !productId || !login || !password}
+          disabled={busy || !productId || !login || !password || !profileReady}
           onClick={() => run(async () => {
             await api("/api/admin/stock/credentials", {
               method: "POST",
@@ -151,9 +215,12 @@ export function StockPanel({
                 productId,
                 login,
                 password,
-                totpSecret,
+                totpSecret: profileProduct ? "" : totpSecret,
                 slotsTotal,
                 note,
+                profileSlots: profileProduct
+                  ? profileSlots.map((slot) => ({ num: slot.num.trim(), pin: slot.pin.trim() }))
+                  : undefined,
               }),
             });
             setLogin("");
@@ -161,6 +228,7 @@ export function StockPanel({
             setTotpSecret("");
             setNote("");
             setSlotsTotal(1);
+            setProfileSlots(emptyProfileSlots(1));
           })}
         >
           Додати на склад
@@ -168,7 +236,9 @@ export function StockPanel({
         {selected && (
           <p className="muted" style={{ marginTop: 10 }}>
             {selected.autoIssue
-              ? "Після оплати логін і пароль зʼявляться в кабінеті одразу."
+              ? profileProduct
+                ? "Після оплати клієнт отримає логін, пароль, номер профілю та PIN у кабінеті."
+                : "Після оплати логін і пароль зʼявляться в кабінеті одразу."
               : "Автовидача вимкнена — доступ видає менеджер."}
           </p>
         )}
@@ -184,13 +254,18 @@ export function StockPanel({
           <div className="tw">
             <table>
               <thead>
-                <tr><th>Логін</th><th>2FA</th><th>Слоти</th><th>Статус</th><th>Примітка</th><th></th></tr>
+                <tr><th>Логін</th><th>2FA</th><th>Профілі</th><th>Слоти</th><th>Статус</th><th>Примітка</th><th></th></tr>
               </thead>
               <tbody>
                 {rows.map((c) => (
                   <tr key={c.id}>
                     <td><b>{c.login}</b></td>
                     <td>{c.hasTotp ? "є" : "—"}</td>
+                    <td className="muted">
+                      {c.profileSlots?.length
+                        ? c.profileSlots.map((slot) => `№${slot.num}`).join(", ")
+                        : "—"}
+                    </td>
                     <td className="n">{c.slotsUsed}/{c.slotsTotal}</td>
                     <td>{c.active ? "активний" : "вимкнений"}</td>
                     <td className="muted">{c.note || "—"}</td>

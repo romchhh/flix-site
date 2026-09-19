@@ -119,11 +119,11 @@ export function BuyForm({
         <p className="buy-form-terms">
           Оплата карткою через Monobank.
           {recurring ? " Наступні списання — раз на місяць, тією ж карткою." : ""}
-          {!loggedIn && autoIssue
+          {autoIssue
             ? " Після оплати доступ зʼявиться одразу на цій вкладці."
             : !loggedIn
               ? " Після оплати напиши менеджеру — він видасть доступ."
-              : ""}
+              : " Після оплати менеджер надішле доступ у Telegram."}
         </p>
       </section>
 

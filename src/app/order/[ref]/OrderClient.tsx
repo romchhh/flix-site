@@ -10,6 +10,7 @@ type Delivery = {
   password: string;
   hasTotp: boolean;
   profileName?: string | null;
+  pin?: string | null;
   expiresAt?: string | null;
 };
 
@@ -147,6 +148,18 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
               <h2>Дані для входу</h2>
               <p className="order-hint">Збережи їх — доступ уже активний.</p>
               <div className="order-creds">
+                {data.delivery.profileName && (
+                  <div>
+                    <small>Профіль</small>
+                    <code>{data.delivery.profileName}</code>
+                  </div>
+                )}
+                {data.delivery.pin && (
+                  <div>
+                    <small>PIN</small>
+                    <code>{data.delivery.pin}</code>
+                  </div>
+                )}
                 <div>
                   <small>Логін</small>
                   <code>{data.delivery.login}</code>
@@ -177,13 +190,10 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
           {paid && data.autoIssue && !data.delivery && (
             <div className="order-access">
               <p className="order-hint">
-                Оплату отримано. Готуємо доступ — оновиться автоматично за кілька секунд.
-                Якщо довго немає даних, напиши менеджеру з номером замовлення.
+                Оплату отримано. Готуємо доступ — логін і пароль зʼявляться тут автоматично за кілька секунд.
               </p>
               <div className="order-actions">
-                <a className="btn" href={data.supportUrl} target="_blank" rel="noopener noreferrer">
-                  Написати менеджеру<span className="dot"><Arrow /></span>
-                </a>
+                <Link className="btn" href="/cabinet">У кабінет<span className="dot"><Arrow /></span></Link>
               </div>
             </div>
           )}

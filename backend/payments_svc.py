@@ -275,35 +275,87 @@ def list_pending_site_payments(limit: int = 30) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-async def refresh_pending_from_mono(limit: int = 20) -> int:
-    """Якщо вебхук не дійшов — підтягнути статус з Mono і видати зі складу."""
+async def refresh_payment_from_mono(ref: str) -> dict | None:
+    """Підтягнути статус одного платежу з Mono і видати зі складу, якщо оплачено."""
     from . import monopay
 
+    row = get_site_payment(ref)
+    if not row:
+        return None
+    invoice_id = str(row.get("invoice_id") or "")
+    status = (row.get("status") or "").lower()
+    if status in _PAID:
+        await stock_svc.process_paid_payment(row)
+        return get_site_payment(invoice_id or ref)
+    if not invoice_id:
+        return row
+    try:
+        data = await monopay.fetch_invoice_status(invoice_id)
+    except Exception:
+        log.exception("mono status poll %s", invoice_id)
+        return row
+    if not data:
+        return row
+    mono_status = str(data.get("status") or "").strip().lower()
+    if not mono_status:
+        return row
+    update_mono_status(invoice_id, mono_status, webhook=data)
+    fresh = get_site_payment(invoice_id)
+    if not fresh:
+        return row
+    if mono_status in _PAID:
+        await stock_svc.process_paid_payment(fresh)
+        if not fresh.get("synced_to_bot"):
+            await sync_payment_to_bot(fresh)
+        else:
+            await forward_mono_to_bot(_webhook_for_row(fresh))
+    return get_site_payment(invoice_id or ref)
+
+
+async def refresh_user_payments(site_user_id: str) -> None:
+    """Перевірити pending-платежі користувача і довидачу зі складу після оплати."""
+    with db() as conn:
+        pending = conn.execute(
+            """
+            SELECT payment_id FROM site_payments
+            WHERE site_user_id = ? AND status = 'pending'
+            ORDER BY created_at DESC
+            LIMIT 8
+            """,
+            (site_user_id,),
+        ).fetchall()
+        paid = conn.execute(
+            """
+            SELECT invoice_id, product_id FROM site_payments
+            WHERE site_user_id = ? AND status = 'success'
+            ORDER BY created_at DESC
+            LIMIT 12
+            """,
+            (site_user_id,),
+        ).fetchall()
+    for row in pending:
+        await refresh_payment_from_mono(str(row["payment_id"]))
+        await asyncio.sleep(0.05)
+    for row in paid:
+        if not stock_svc.is_auto_issue(int(row["product_id"])):
+            continue
+        invoice_id = str(row["invoice_id"] or "")
+        if stock_svc.get_delivery_by_payment(invoice_id):
+            continue
+        full = get_site_payment(invoice_id)
+        if full:
+            await stock_svc.process_paid_payment(full)
+
+
+async def refresh_pending_from_mono(limit: int = 20) -> int:
+    """Якщо вебхук не дійшов — підтягнути статус з Mono і видати зі складу."""
     ok = 0
     for row in list_pending_site_payments(limit):
         invoice_id = str(row.get("invoice_id") or "")
         if not invoice_id:
             continue
-        try:
-            data = await monopay.fetch_invoice_status(invoice_id)
-        except Exception:
-            log.exception("mono status poll %s", invoice_id)
-            continue
-        if not data:
-            continue
-        status = str(data.get("status") or "").strip().lower()
-        if not status:
-            continue
-        update_mono_status(invoice_id, status, webhook=data)
-        fresh = get_site_payment(invoice_id)
-        if not fresh:
-            continue
-        if status in _PAID:
-            await stock_svc.process_paid_payment(fresh)
-            if not fresh.get("synced_to_bot"):
-                await sync_payment_to_bot(fresh)
-            else:
-                await forward_mono_to_bot(_webhook_for_row(fresh))
+        fresh = await refresh_payment_from_mono(invoice_id)
+        if fresh and (fresh.get("status") or "").lower() in _PAID:
             ok += 1
         await asyncio.sleep(0.1)
     if ok:

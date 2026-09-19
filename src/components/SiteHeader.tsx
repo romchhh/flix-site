@@ -15,13 +15,16 @@ export async function SiteHeader() {
         <div className="bar">
           <div className="bar-start">
             <Suspense fallback={null}>
-              <PageBack />
+              <PageBack className="page-back-in-header" />
             </Suspense>
             <Logo size={25} />
           </div>
           <SiteNav user={me} />
         </div>
       </div>
+      <Suspense fallback={null}>
+        <PageBack className="page-back-float" />
+      </Suspense>
     </header>
   );
 }

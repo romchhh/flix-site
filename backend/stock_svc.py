@@ -1,6 +1,7 @@
 """Склад акаунтів і автовидача після оплати на сайті."""
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -62,6 +63,55 @@ def init_stock_tables(conn) -> None:
         CREATE INDEX IF NOT EXISTS idx_code_logs_delivery ON code_logs(delivery_id, created_at);
         """
     )
+    _ensure_profile_columns(conn)
+
+
+def _ensure_profile_columns(conn) -> None:
+    cred_cols = {row[1] for row in conn.execute("PRAGMA table_info(credentials)").fetchall()}
+    if "profile_slots_enc" not in cred_cols:
+        conn.execute("ALTER TABLE credentials ADD COLUMN profile_slots_enc TEXT")
+    del_cols = {row[1] for row in conn.execute("PRAGMA table_info(deliveries)").fetchall()}
+    if "profile_pin_enc" not in del_cols:
+        conn.execute("ALTER TABLE deliveries ADD COLUMN profile_pin_enc TEXT")
+
+
+def product_needs_profile_pin(product_name: str | None) -> bool:
+    return bool(product_name and "hbo" in product_name.lower())
+
+
+def _encode_profile_slots(slots: list[dict] | None) -> str | None:
+    if not slots:
+        return None
+    clean: list[dict] = []
+    for slot in slots:
+        num = str(slot.get("num") or "").strip()
+        pin = str(slot.get("pin") or "").strip()
+        if num or pin:
+            clean.append({"num": num, "pin": pin})
+    if not clean:
+        return None
+    return encrypt(json.dumps(clean, ensure_ascii=False))
+
+
+def _decode_profile_slots(enc: str | None) -> list[dict]:
+    if not enc:
+        return []
+    try:
+        data = json.loads(decrypt(enc))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _profile_for_slot(cred: dict, slot_index: int) -> tuple[str, str | None]:
+    slots = _decode_profile_slots(cred.get("profile_slots_enc"))
+    if slot_index < len(slots):
+        entry = slots[slot_index]
+        num = str(entry.get("num") or "").strip() or str(slot_index + 1)
+        pin = str(entry.get("pin") or "").strip() or None
+        profile_name = f"Профіль {num}" if num.isdigit() else num
+        return profile_name, pin
+    return f"Профіль {slot_index + 1}", None
 
 
 def is_auto_issue(product_id: int) -> bool:
@@ -101,6 +151,11 @@ def list_product_settings(product_ids: list[int]) -> dict[int, bool]:
 
 def credential_public(row: dict) -> dict:
     free = max(0, int(row.get("slots_total") or 0) - int(row.get("slots_used") or 0))
+    profile_slots = [
+        {"num": str(s.get("num") or "").strip()}
+        for s in _decode_profile_slots(row.get("profile_slots_enc"))
+        if str(s.get("num") or "").strip()
+    ]
     return {
         "id": row["id"],
         "productId": str(row["product_id"]),
@@ -112,6 +167,7 @@ def credential_public(row: dict) -> dict:
         "note": row.get("note") or "",
         "active": bool(row.get("active")),
         "createdAt": row.get("created_at"),
+        "profileSlots": profile_slots,
     }
 
 
@@ -141,15 +197,18 @@ def add_credential(
     totp_secret: str | None = None,
     slots_total: int = 1,
     note: str = "",
+    profile_slots: list[dict] | None = None,
 ) -> dict:
     cid = new_id()
+    slots_n = max(1, int(slots_total))
+    profile_enc = _encode_profile_slots(profile_slots)
     with db() as conn:
         conn.execute(
             """
             INSERT INTO credentials (
                 id, product_id, login, secret_enc, totp_enc,
-                slots_total, slots_used, note, active, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 1, ?)
+                slots_total, slots_used, note, active, created_at, profile_slots_enc
+            ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 1, ?, ?)
             """,
             (
                 cid,
@@ -157,9 +216,10 @@ def add_credential(
                 login.strip(),
                 encrypt(password),
                 encrypt(totp_secret.strip()) if totp_secret and totp_secret.strip() else None,
-                max(1, int(slots_total)),
+                slots_n,
                 (note or "").strip(),
                 now(),
+                profile_enc,
             ),
         )
         row = conn.execute("SELECT * FROM credentials WHERE id = ?", (cid,)).fetchone()
@@ -314,14 +374,16 @@ def append_orphan_deliveries(site_user_id: str, subs: dict) -> dict:
         if not _delivery_active(row):
             continue
         access = _delivery_access(row)
+        pid = access["productId"]
         extras.append({
             "id": f"del-{access['id']}",
             "botId": None,
-            "productId": access["productId"],
-            "name": access.get("profileName") or f"Підписка #{access['productId']}",
+            "productId": pid,
+            "name": access.get("profileName") or f"Підписка #{pid}",
             "kind": "one_time",
             "status": "active",
             "source": "site",
+            "autoIssue": is_auto_issue(int(pid)),
             "startsAt": row.get("created_at"),
             "expiresAt": access.get("expiresAt"),
             "login": access["login"],
@@ -329,6 +391,7 @@ def append_orphan_deliveries(site_user_id: str, subs: dict) -> dict:
             "hasTotp": access["hasTotp"],
             "deliveryId": access["id"],
             "profileName": access.get("profileName"),
+            "pin": access.get("pin"),
             "photoUrl": f"/api/media/product/{access['productId']}",
         })
         linked_ids.add(str(row["id"]))
@@ -390,6 +453,12 @@ def _sub_active(sub: dict) -> bool:
 
 
 def _delivery_access(row: dict) -> dict:
+    pin = None
+    if row.get("profile_pin_enc"):
+        try:
+            pin = decrypt(row["profile_pin_enc"])
+        except Exception:
+            pin = None
     return {
         "id": row["id"],
         "productId": str(row["product_id"]),
@@ -397,6 +466,7 @@ def _delivery_access(row: dict) -> dict:
         "password": decrypt(row["secret_enc"]),
         "hasTotp": bool(row.get("totp_enc")),
         "profileName": row.get("profile_name"),
+        "pin": pin,
         "botSubId": row.get("bot_sub_id"),
         "botSubKind": row.get("bot_sub_kind"),
         "paymentId": row.get("payment_id"),
@@ -534,7 +604,26 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
         sub["password"] = access["password"]
         sub["hasTotp"] = access["hasTotp"]
         sub["profileName"] = access.get("profileName") or sub.get("profileName")
+        sub["pin"] = access.get("pin")
         sub["deliveryId"] = access["id"]
+        pid = sub.get("productId")
+        if pid:
+            try:
+                sub["autoIssue"] = is_auto_issue(int(pid))
+            except (TypeError, ValueError):
+                sub["autoIssue"] = False
+
+    for bucket in (subs.get("oneTime") or [], subs.get("recurring") or []):
+        for sub in bucket:
+            if sub.get("autoIssue") is not None:
+                continue
+            pid = sub.get("productId")
+            if not pid:
+                continue
+            try:
+                sub["autoIssue"] = is_auto_issue(int(pid))
+            except (TypeError, ValueError):
+                sub["autoIssue"] = False
 
     for bucket in (subs.get("oneTime") or [], subs.get("recurring") or []):
         for sub in bucket:
@@ -607,6 +696,9 @@ def try_deliver_for_payment(payment_row: dict, months: int = 1) -> dict:
             return {"ok": False, "reason": "no_stock"}
         cred = dict(cred)
         delivery_id = new_id()
+        slot_index = int(cred["slots_used"] or 0)
+        profile_name, profile_pin = _profile_for_slot(cred, slot_index)
+        profile_pin_enc = encrypt(profile_pin) if profile_pin else None
         expires = (datetime.utcnow() + timedelta(days=30 * max(1, int(months)))).strftime("%Y-%m-%dT%H:%M:%SZ")
         conn.execute(
             "UPDATE credentials SET slots_used = slots_used + 1 WHERE id = ?",
@@ -616,8 +708,8 @@ def try_deliver_for_payment(payment_row: dict, months: int = 1) -> dict:
             """
             INSERT INTO deliveries (
                 id, site_user_id, product_id, credential_id, payment_id,
-                profile_name, expires_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                profile_name, profile_pin_enc, expires_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 delivery_id,
@@ -625,7 +717,8 @@ def try_deliver_for_payment(payment_row: dict, months: int = 1) -> dict:
                 product_id,
                 cred["id"],
                 invoice_id,
-                f"Профіль {int(cred['slots_used']) + 1}",
+                profile_name,
+                profile_pin_enc,
                 expires,
                 now(),
             ),

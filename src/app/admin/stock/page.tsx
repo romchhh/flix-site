@@ -4,7 +4,7 @@ import { StockPanel } from "./StockPanel";
 export const dynamic = "force-dynamic";
 
 type StockData = {
-  products: Array<{ id: string; name: string; autoIssue: boolean; stockFree: number }>;
+  products: Array<{ id: string; name: string; autoIssue: boolean; stockFree: number; needsProfilePin?: boolean }>;
   credentials: Array<{
     id: string;
     productId: string;
@@ -15,6 +15,7 @@ type StockData = {
     slotsFree: number;
     note: string;
     active: boolean;
+    profileSlots?: Array<{ num: string }>;
   }>;
 };
 

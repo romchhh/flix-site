@@ -79,8 +79,11 @@ export type BotSubscription = {
   cardType?: string | null;
   login?: string | null;
   password?: string | null;
+  pin?: string | null;
+  profileName?: string | null;
   hasTotp?: boolean;
   deliveryId?: string | null;
+  autoIssue?: boolean;
 };
 
 export type BillingEntry = {

@@ -113,7 +113,7 @@ export default async function Cabinet({ searchParams }:
         <div className="import">
           <div className="grow">
             <b>Чекаємо оплату</b>
-            <p>Щойно гроші дійдуть, підписка зʼявиться тут. Обробка відбувається в боті.</p>
+            <p>Щойно гроші дійдуть, підписка зʼявиться тут. Для товарів з автовидачею доступ підтягнеться автоматично.</p>
           </div>
         </div>
       )}
@@ -125,10 +125,12 @@ export default async function Cabinet({ searchParams }:
             <p>
               {active.some((s) => s.login || s.password)
                 ? "Дані для входу вже в картці підписки нижче. Якщо потрібен код 2FA — натисни «Код 2FA»."
-                : <>Менеджер <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer" style={{ color: "#A9C4FF", fontWeight: 800 }}>@kinomanage</a> надішле доступ у Telegram. Підписка вже в кабінеті.</>}
+                : active.some((s) => s.autoIssue)
+                  ? "Оплату отримали — готуємо доступ. Дані зʼявляться в картці підписки за кілька секунд."
+                  : <>Менеджер <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer" style={{ color: "#A9C4FF", fontWeight: 800 }}>@kinomanage</a> надішле доступ у Telegram. Підписка вже в кабінеті.</>}
             </p>
           </div>
-          {!active.some((s) => s.login || s.password) && (
+          {!active.some((s) => s.login || s.password) && !active.some((s) => s.autoIssue) && (
             <a className="btn" href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">Написати менеджеру<span className="dot"><Arrow /></span></a>
           )}
         </div>

@@ -37,6 +37,7 @@ type Sub = {
   maskedCard?: string | null;
   cardType?: string | null;
   charges?: BillingEntry[];
+  autoIssue?: boolean;
 };
 
 function SubThumb({ name, icon, color, photoUrl, productId }: {
@@ -203,8 +204,10 @@ export function SubCard({ sub }: { sub: Sub }) {
               )}
             </div>
 
-            {(sub.login || sub.password) && (
+            {(sub.login || sub.password || sub.profileName || sub.pin) && (
               <div className="creds">
+                {sub.profileName && <div className="row"><span>Профіль</span><b>{sub.profileName}</b></div>}
+                {sub.pin && <div className="row"><span>PIN</span><b>{sub.pin}</b></div>}
                 {sub.login && <div className="row"><span>Логін</span><b>{sub.login}</b></div>}
                 {sub.password && <div className="row"><span>Пароль</span><b>{sub.password}</b></div>}
               </div>
@@ -263,7 +266,9 @@ export function SubCard({ sub }: { sub: Sub }) {
             <p className="tip">
               {(sub.login || sub.password)
                 ? "Не передавай дані третім особам. Якщо сервіс просить код — натисни «Код 2FA»."
-                : <>Доступ після оплати надсилає <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджер @kinomanage</a>.</>}
+                : sub.autoIssue
+                  ? "Доступ зʼявиться тут одразу після автовидачі. Якщо довго немає даних — напиши в підтримку."
+                  : <>Доступ після оплати надсилає <a href={SUPPORT_TG} target="_blank" rel="noopener noreferrer">менеджер @kinomanage</a>.</>}
               {" "}Пише «сервіс недоступний у вашому регіоні»? Вмикай{" "}
               <a href="https://t.me/FlixVPNBot">FlixVPN</a>.
             </p>

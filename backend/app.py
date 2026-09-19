@@ -988,6 +988,7 @@ async def order_status(ref: str, request: Request):
     if str(row.get("site_user_id")) != str(uid):
         return json_error("Це чуже замовлення", 403)
 
+    row = await payments_svc.refresh_payment_from_mono(ref) or row
     status = (row.get("status") or "pending").lower()
     product = await catalog_svc.get_product(str(row["product_id"]))
     auto_issue = bool(product and product.get("autoIssue")) if product else stock_svc.is_auto_issue(int(row["product_id"]))
@@ -1109,6 +1110,7 @@ async def cabinet(request: Request, order: str | None = None):
             if pid and not sub.get("photoUrl"):
                 sub["photoUrl"] = f"/api/media/product/{pid}"
 
+    await payments_svc.refresh_user_payments(uid)
     stock_svc.enrich_subscriptions(uid, subs)
     stock_svc.append_orphan_deliveries(uid, subs)
     for bucket in (subs.get("oneTime") or [],):
@@ -1194,6 +1196,7 @@ async def admin_stock(request: Request, product_id: int | None = None):
             {
                 "id": str(p.get("botId") or p.get("id")),
                 "name": p.get("name"),
+                "needsProfilePin": stock_svc.product_needs_profile_pin(p.get("name")),
                 "autoIssue": settings.get(int(p.get("botId") or p.get("id")), False),
                 "stockFree": stock_counts.get(str(p.get("botId") or p.get("id")), 0),
             }
@@ -1235,6 +1238,9 @@ async def admin_stock_add(request: Request):
         product_id = int(body.get("productId"))
     except (TypeError, ValueError):
         return json_error("Обери товар", 400)
+    profile_slots = body.get("profileSlots")
+    if profile_slots is not None and not isinstance(profile_slots, list):
+        profile_slots = None
     cred = stock_svc.add_credential(
         product_id=product_id,
         login=login,
@@ -1242,6 +1248,7 @@ async def admin_stock_add(request: Request):
         totp_secret=(body.get("totpSecret") or "").strip() or None,
         slots_total=int(body.get("slotsTotal") or 1),
         note=(body.get("note") or "").strip(),
+        profile_slots=profile_slots,
     )
     return {"ok": True, "credential": cred}
 

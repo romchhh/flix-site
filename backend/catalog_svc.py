@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 import time
@@ -204,14 +205,27 @@ def apply_stock_settings(catalog: dict) -> dict:
     return catalog
 
 
+def _site_media_url(kind: str, entity_id, version: int | None = None) -> str:
+    url = f"/api/media/{kind}/{entity_id}"
+    if version:
+        url += f"?v={version}"
+    return url
+
+
 def rewrite_site_urls(catalog: dict) -> dict:
     for product in catalog.get("products") or []:
         pid = product.get("botId") or product.get("id")
         if product.get("photoUrl"):
-            product["photoUrl"] = f"/api/media/product/{pid}"
+            product["photoUrl"] = _site_media_url(
+                "product", pid, product.get("photoVersion"),
+            )
+        product.pop("photoVersion", None)
     for category in catalog.get("categories") or []:
         if category.get("photoUrl"):
-            category["photoUrl"] = f"/api/media/category/{category['id']}"
+            category["photoUrl"] = _site_media_url(
+                "category", category["id"], category.get("photoVersion"),
+            )
+        category.pop("photoVersion", None)
     return catalog
 
 
@@ -429,8 +443,12 @@ def media_response(payload: tuple[bytes, str] | None):
     if not payload:
         return None
     body, ctype = payload
+    etag = hashlib.md5(body).hexdigest()[:16]
     return Response(
         content=body,
         media_type=ctype,
-        headers={"Cache-Control": "public, max-age=86400"},
+        headers={
+            "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+            "ETag": f'"{etag}"',
+        },
     )
