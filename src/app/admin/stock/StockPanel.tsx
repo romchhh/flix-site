@@ -8,6 +8,8 @@ type ProductRow = {
   autoIssue: boolean;
   stockFree: number;
   needsProfilePin?: boolean;
+  isBundle?: boolean;
+  bundleSources?: Array<{ id: string; name: string }>;
 };
 
 type ProfileSlot = { num: string; pin: string };
@@ -26,7 +28,8 @@ type CredentialRow = {
 };
 
 function needsProfilePin(product?: ProductRow | null) {
-  return Boolean(product?.needsProfilePin || /hbo/i.test(product?.name || ""));
+  if (!product || product.isBundle) return false;
+  return Boolean(product.needsProfilePin || /hbo/i.test(product.name || ""));
 }
 
 function emptyProfileSlots(count: number): ProfileSlot[] {
@@ -64,8 +67,13 @@ export function StockPanel({
   const [profileSlots, setProfileSlots] = useState<ProfileSlot[]>(emptyProfileSlots(1));
 
   const selected = products.find((p) => p.id === productId);
+  const bundleProduct = Boolean(selected?.isBundle);
   const profileProduct = needsProfilePin(selected);
-  const rows = productId ? initial.filter((c) => c.productId === productId) : initial;
+  const rows = productId && !bundleProduct
+    ? initial.filter((c) => c.productId === productId)
+    : bundleProduct
+      ? []
+      : initial;
 
   useEffect(() => {
     setProfileSlots((prev) => {
@@ -106,7 +114,10 @@ export function StockPanel({
             <tbody>
               {products.map((p) => (
                 <tr key={p.id}>
-                  <td><b>{p.name}</b></td>
+                  <td>
+                    <b>{p.name}</b>
+                    {p.isBundle && <small className="muted" style={{ display: "block", marginTop: 4 }}>набір</small>}
+                  </td>
                   <td className="n">{p.stockFree}</td>
                   <td>
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
@@ -142,11 +153,45 @@ export function StockPanel({
               ))}
             </select>
           </div>
-          <div className="field">
-            <label>Слотів</label>
-            <input type="number" min={1} value={slotsTotal} onChange={(e) => setSlotsTotal(Number(e.target.value) || 1)} />
-          </div>
+          {!bundleProduct && (
+            <div className="field">
+              <label>Слотів</label>
+              <input type="number" min={1} value={slotsTotal} onChange={(e) => setSlotsTotal(Number(e.target.value) || 1)} />
+            </div>
+          )}
         </div>
+
+        {bundleProduct && selected?.bundleSources?.length ? (
+          <div className="warn-box" style={{ marginBottom: 14 }}>
+            <b>Це набір — окремий склад не потрібен</b>
+            <p className="muted" style={{ marginTop: 8, marginBottom: 0 }}>
+              Після оплати сайт видасть доступ зі складів:{" "}
+              {selected.bundleSources.map((source) => source.name).join(" + ")}.
+              Додавай акаунти до цих товарів окремо — набір забере по одному з кожного складу.
+            </p>
+            <ul style={{ margin: "10px 0 0", paddingLeft: 18 }}>
+              {selected.bundleSources.map((source) => {
+                const stock = products.find((p) => p.id === source.id)?.stockFree ?? 0;
+                return (
+                  <li key={source.id}>
+                    <button
+                      type="button"
+                      className="more-btn"
+                      style={{ padding: 0, border: 0, background: "none", fontWeight: 800 }}
+                      onClick={() => setProductId(source.id)}
+                    >
+                      {source.name}
+                    </button>
+                    {" — "}{stock} вільних слотів
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+
+        {!bundleProduct && (
+        <>
         <div className="f2">
           <div className="field">
             <label>Логін</label>
@@ -242,13 +287,20 @@ export function StockPanel({
               : "Автовидача вимкнена — доступ видає менеджер."}
           </p>
         )}
+        </>
+        )}
       </div>
 
       <div className="panel">
         <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 14 }}>
           Акаунти{selected ? `: ${selected.name}` : ""}
         </h2>
-        {rows.length === 0 ? (
+        {bundleProduct ? (
+          <p className="muted">
+            У набору немає власного складу. Дивись акаунти в окремих товарах:{" "}
+            {selected?.bundleSources?.map((source) => source.name).join(", ") || "—"}.
+          </p>
+        ) : rows.length === 0 ? (
           <p className="muted">На складі порожньо.</p>
         ) : (
           <div className="tw">

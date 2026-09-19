@@ -4,7 +4,15 @@ import { StockPanel } from "./StockPanel";
 export const dynamic = "force-dynamic";
 
 type StockData = {
-  products: Array<{ id: string; name: string; autoIssue: boolean; stockFree: number; needsProfilePin?: boolean }>;
+  products: Array<{
+    id: string;
+    name: string;
+    autoIssue: boolean;
+    stockFree: number;
+    needsProfilePin?: boolean;
+    isBundle?: boolean;
+    bundleSources?: Array<{ id: string; name: string }>;
+  }>;
   credentials: Array<{
     id: string;
     productId: string;

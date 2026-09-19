@@ -1183,6 +1183,7 @@ async def admin_stock(request: Request, product_id: int | None = None):
     except BotAPIError as e:
         return json_error(e.message, e.status)
     products = catalog_data.get("products") or []
+    stock_svc.ensure_bundle_sources(products)
     settings = stock_svc.list_product_settings(
         [int(p.get("botId") or p.get("id")) for p in products if str(p.get("botId") or p.get("id")).isdigit()]
     )
@@ -1191,17 +1192,22 @@ async def admin_stock(request: Request, product_id: int | None = None):
     for cred in creds:
         pid = cred["productId"]
         stock_counts[pid] = stock_counts.get(pid, 0) + cred["slotsFree"]
+    payload_products = []
+    for p in products:
+        pid = int(p.get("botId") or p.get("id"))
+        bundle_sources = stock_svc.bundle_source_labels(pid, products)
+        bundle_stock = stock_svc.bundle_stock_free(pid, products)
+        payload_products.append({
+            "id": str(pid),
+            "name": p.get("name"),
+            "needsProfilePin": stock_svc.product_needs_profile_pin(p.get("name"), pid),
+            "autoIssue": settings.get(pid, False),
+            "isBundle": bool(bundle_sources),
+            "bundleSources": bundle_sources,
+            "stockFree": bundle_stock if bundle_sources else stock_counts.get(str(pid), 0),
+        })
     return {
-        "products": [
-            {
-                "id": str(p.get("botId") or p.get("id")),
-                "name": p.get("name"),
-                "needsProfilePin": stock_svc.product_needs_profile_pin(p.get("name")),
-                "autoIssue": settings.get(int(p.get("botId") or p.get("id")), False),
-                "stockFree": stock_counts.get(str(p.get("botId") or p.get("id")), 0),
-            }
-            for p in products
-        ],
+        "products": payload_products,
         "credentials": creds,
     }
 
@@ -1238,6 +1244,11 @@ async def admin_stock_add(request: Request):
         product_id = int(body.get("productId"))
     except (TypeError, ValueError):
         return json_error("Обери товар", 400)
+    if stock_svc.is_bundle_product(product_id):
+        return json_error(
+            "Цей товар — набір. Додавай акаунти окремо до складів сервісів, що входять у набір.",
+            400,
+        )
     profile_slots = body.get("profileSlots")
     if profile_slots is not None and not isinstance(profile_slots, list):
         profile_slots = None

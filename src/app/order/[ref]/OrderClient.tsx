@@ -4,14 +4,21 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Arrow } from "@/components/Logo";
 
-type Delivery = {
+type DeliveryPart = {
   id: string;
   login: string;
   password: string;
-  hasTotp: boolean;
+  hasTotp?: boolean;
   profileName?: string | null;
   pin?: string | null;
+  partLabel?: string | null;
+  label?: string | null;
   expiresAt?: string | null;
+};
+
+type Delivery = DeliveryPart & {
+  bundle?: boolean;
+  parts?: DeliveryPart[];
 };
 
 type OrderPayload = {
@@ -87,6 +94,11 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
 
   const paid = data && (data.status === "success" || data.status === "paid");
   const failed = data && (data.status === "failed" || data.status === "failure");
+  const deliveryParts = data?.delivery
+    ? (data.delivery.bundle && data.delivery.parts?.length
+      ? data.delivery.parts
+      : [data.delivery])
+    : [];
 
   return (
     <section className="order-page">
@@ -147,28 +159,37 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
             <div className="order-access">
               <h2>Дані для входу</h2>
               <p className="order-hint">Збережи їх — доступ уже активний.</p>
-              <div className="order-creds">
-                {data.delivery.profileName && (
-                  <div>
-                    <small>Профіль</small>
-                    <code>{data.delivery.profileName}</code>
+              {deliveryParts.map((part, index) => (
+                <div key={part.id || index} style={{ marginBottom: index < deliveryParts.length - 1 ? 18 : 0 }}>
+                  {(part.partLabel || part.label) && (
+                    <p className="order-hint" style={{ marginBottom: 8, fontWeight: 800 }}>
+                      {part.partLabel || part.label}
+                    </p>
+                  )}
+                  <div className="order-creds">
+                    {part.profileName && (
+                      <div>
+                        <small>Профіль</small>
+                        <code>{part.profileName}</code>
+                      </div>
+                    )}
+                    {part.pin && (
+                      <div>
+                        <small>PIN</small>
+                        <code>{part.pin}</code>
+                      </div>
+                    )}
+                    <div>
+                      <small>Логін</small>
+                      <code>{part.login}</code>
+                    </div>
+                    <div>
+                      <small>Пароль</small>
+                      <code>{part.password}</code>
+                    </div>
                   </div>
-                )}
-                {data.delivery.pin && (
-                  <div>
-                    <small>PIN</small>
-                    <code>{data.delivery.pin}</code>
-                  </div>
-                )}
-                <div>
-                  <small>Логін</small>
-                  <code>{data.delivery.login}</code>
                 </div>
-                <div>
-                  <small>Пароль</small>
-                  <code>{data.delivery.password}</code>
-                </div>
-              </div>
+              ))}
               {data.delivery.hasTotp && (
                 <div className="order-totp">
                   {code ? (

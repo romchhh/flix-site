@@ -7,18 +7,13 @@ import { badgeClass, badgeLabel } from "@/lib/display";
 import { ProductCopy } from "./ProductCopy";
 
 /**
- * Картка каталогу.
- *
- * Згорнута має фіксовану висоту — і місце під кнопку «Ще» резервується завжди,
- * навіть коли ховати нічого. Інакше картки без кнопки виходять нижчими за сусідні.
- * Факт обрізки міряється по реальній висоті тексту, а не вгадується по довжині:
- * рядки переносяться по-різному на різних екранах.
+ * Картка каталогу — увесь клік веде на сторінку товару.
+ * «Ще» показується, коли опис обрізаний, і теж відкриває сторінку товару.
  */
 export function CatalogCard({ name, icon, color, description, features, priceMain, priceNote, href, photoUrl, badge }: {
   name: string; icon: string; color: string; description: string; features: string;
   priceMain: string; priceNote: string; href: string; photoUrl?: string | null; badge?: string | null;
 }) {
-  const [open, setOpen] = useState(false);
   const [cut, setCut] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const body = useRef<HTMLDivElement>(null);
@@ -33,10 +28,10 @@ export function CatalogCard({ name, icon, color, description, features, priceMai
     const ro = new ResizeObserver(check);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [showPhoto]);
+  }, [showPhoto, description, features]);
 
   return (
-    <div className={`card cat-card${showPhoto ? " has-photo" : ""}${open ? "" : " is-closed"}`}>
+    <Link href={href} className={`card cat-card is-closed${showPhoto ? " has-photo" : ""}`}>
       {showPhoto && (
         <div className="cat-card-photo">
           <img src={photoUrl!} alt="" onError={() => setImgFailed(true)} />
@@ -48,23 +43,23 @@ export function CatalogCard({ name, icon, color, description, features, priceMai
         {!showPhoto && (
           <ServiceIcon slug={icon} color={color} letter={name.charAt(0)} size={30} />
         )}
-        <h3><Link href={href} className="cat-card-title">{name}</Link></h3>
+        <h3>{name}</h3>
       </div>
       {!showPhoto && tag && <span className={badgeClass(badge)} style={{ alignSelf: "flex-start", marginBottom: 10 }}>{tag}</span>}
 
-      <div ref={body} className={open ? "cb" : "cb cb-cut"}>
+      <div ref={body} className="cb cb-cut">
         <ProductCopy description={description} features={features} className="cat-card-copy" />
       </div>
 
       <div className="cb-toggle">
-        {(cut || open) && (
-          <button className="more-btn" onClick={() => setOpen(!open)} aria-expanded={open}>
-            {open ? "Згорнути" : "Ще"}
-            <svg viewBox="0 0 24 24" className={open ? "up" : ""}>
-              <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.4"
+        {cut && (
+          <span className="more-btn" aria-hidden="true">
+            Ще
+            <svg viewBox="0 0 24 24">
+              <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2.4"
                 strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          </button>
+          </span>
         )}
       </div>
 
@@ -73,9 +68,9 @@ export function CatalogCard({ name, icon, color, description, features, priceMai
         <small>{priceNote}</small>
       </div>
 
-      <Link className="btn sm block cat-card-btn" href={href}>
+      <span className="btn sm block cat-card-btn">
         Оформити<span className="dot"><Arrow /></span>
-      </Link>
-    </div>
+      </span>
+    </Link>
   );
 }

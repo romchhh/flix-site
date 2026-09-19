@@ -38,6 +38,15 @@ type Sub = {
   cardType?: string | null;
   charges?: BillingEntry[];
   autoIssue?: boolean;
+  accessParts?: Array<{
+    label?: string | null;
+    login?: string | null;
+    password?: string | null;
+    profileName?: string | null;
+    pin?: string | null;
+    hasTotp?: boolean;
+    deliveryId?: string | null;
+  }>;
 };
 
 function SubThumb({ name, icon, color, photoUrl, productId }: {
@@ -89,7 +98,10 @@ export function SubCard({ sub }: { sub: Sub }) {
   const charges = sub.charges ?? [];
   const billingOn = Boolean(sub.recurring && sub.billingActive !== false);
 
-  const subtitle = sub.profileName
+  const accessParts = sub.accessParts?.filter((part) => part.login || part.password || part.profileName || part.pin) ?? [];
+  const subtitle = accessParts.length > 1
+    ? `${accessParts.length} сервіси в наборі`
+    : sub.profileName
     || (sub.login || sub.password ? "Доступ у кабінеті" : null)
     || (sub.recurring ? (billingOn ? "Автосписання" : "Без автосписання") : null)
     || "Підписка";
@@ -204,14 +216,24 @@ export function SubCard({ sub }: { sub: Sub }) {
               )}
             </div>
 
-            {(sub.login || sub.password || sub.profileName || sub.pin) && (
+            {accessParts.length > 0 ? (
+              accessParts.map((part, index) => (
+                <div className="creds" key={`${part.deliveryId || part.label || index}`} style={{ marginTop: index ? 10 : 0 }}>
+                  {part.label && <div className="row"><span>Сервіс</span><b>{part.label}</b></div>}
+                  {part.profileName && <div className="row"><span>Профіль</span><b>{part.profileName}</b></div>}
+                  {part.pin && <div className="row"><span>PIN</span><b>{part.pin}</b></div>}
+                  {part.login && <div className="row"><span>Логін</span><b>{part.login}</b></div>}
+                  {part.password && <div className="row"><span>Пароль</span><b>{part.password}</b></div>}
+                </div>
+              ))
+            ) : (sub.login || sub.password || sub.profileName || sub.pin) ? (
               <div className="creds">
                 {sub.profileName && <div className="row"><span>Профіль</span><b>{sub.profileName}</b></div>}
                 {sub.pin && <div className="row"><span>PIN</span><b>{sub.pin}</b></div>}
                 {sub.login && <div className="row"><span>Логін</span><b>{sub.login}</b></div>}
                 {sub.password && <div className="row"><span>Пароль</span><b>{sub.password}</b></div>}
               </div>
-            )}
+            ) : null}
 
             {code && (
               <div className="code-box">

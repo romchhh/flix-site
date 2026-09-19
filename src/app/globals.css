@@ -768,7 +768,9 @@ td.n{font-weight:800;white-space:nowrap}
 .more-photo{width:40px;height:40px;border-radius:12px;object-fit:cover;flex:0 0 auto;background:var(--soft)}
 
 /* ── картка каталогу ── */
-.cat-card{overflow:hidden;height:100%;display:flex;flex-direction:column}
+.cat-card{overflow:hidden;height:100%;display:flex;flex-direction:column;text-decoration:none;color:inherit;cursor:pointer;
+  transition:transform .18s,box-shadow .18s}
+.cat-card:hover{transform:translateY(-2px);box-shadow:0 14px 28px rgba(23,38,88,.13)}
 .cat-card-btn{margin-top:16px}
 .cards.catalog .cat-card-photo{
   position:relative;margin:0 0 10px;width:100%;background:#f4f5f8;
@@ -801,12 +803,10 @@ td.n{font-weight:800;white-space:nowrap}
 /* місце під кнопку «Ще» резервується завжди */
 .cb-toggle{min-height:26px;display:flex;align-items:center;flex-shrink:0}
 .cards.catalog .cb-toggle{min-height:24px}
-.more-btn{display:inline-flex;align-items:center;gap:6px;background:none;border:0;cursor:pointer;
-  font-family:inherit;font-size:13px;font-weight:800;color:var(--blue);padding:6px 0 0;align-self:flex-start}
+.more-btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:800;color:var(--blue);
+  padding:6px 0 0;align-self:flex-start;pointer-events:none}
 .cards.catalog .more-btn{font-size:12px;padding:4px 0 0}
-.more-btn:hover{text-decoration:underline}
-.more-btn svg{width:14px;height:14px;transition:transform .18s}
-.more-btn svg.up{transform:rotate(180deg)}
+.more-btn svg{width:14px;height:14px;flex:0 0 14px}
 @media (max-width:720px){
   .cards.catalog .cat-card-photo{
     margin:0 0 8px;width:100%;
