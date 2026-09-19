@@ -8,20 +8,16 @@ import { SUPPORT_TG } from "@/lib/seo";
 export function BuyForm({
   productId,
   options,
-  loggedIn,
   free,
   recurring = false,
   deliveryNote = "",
-  autoIssue = false,
 }: {
   productId: string;
   slug: string;
   options: Plan[];
-  loggedIn: boolean;
   free: number | null;
   recurring?: boolean;
   deliveryNote?: string;
-  autoIssue?: boolean;
 }) {
   const [months, setMonths] = useState(options[0]?.months ?? 0);
   const [error, setError] = useState<string | null>(null);
@@ -119,11 +115,6 @@ export function BuyForm({
         <p className="buy-form-terms">
           Оплата карткою через Monobank.
           {recurring ? " Наступні списання — раз на місяць, тією ж карткою." : ""}
-          {autoIssue
-            ? " Після оплати доступ зʼявиться одразу на цій вкладці."
-            : !loggedIn
-              ? " Після оплати напиши менеджеру — він видасть доступ."
-              : " Після оплати менеджер надішле доступ у Telegram."}
         </p>
       </section>
 

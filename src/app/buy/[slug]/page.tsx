@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { plans, priceCaption } from "@/lib/pricing";
 import { CoverPhoto } from "@/components/CoverPhoto";
-import { currentUser } from "@/lib/session";
 import { SiteHeader, SiteFooter } from "@/components/SiteHeader";
 import { ServiceIcon } from "@/components/ServiceIcon";
 import { Faq } from "@/components/Faq";
@@ -14,6 +13,7 @@ import { breadcrumbJsonLd, faqJsonLd, pageMetadata, productJsonLd, productSeo } 
 import { ProductCopy } from "@/components/ProductCopy";
 import { BuyForm } from "./BuyForm";
 import { backendJson } from "@/lib/backend";
+import { deliveryNote } from "@/lib/delivery";
 import type { CatalogCategory, CatalogProduct } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +59,6 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
   const category = categories.find((c) => c.id === product.categoryId);
   const categoryPath = category ? `/catalog?cat=${encodeURIComponent(category.slug)}` : "/catalog";
 
-  const me = await currentUser();
   const options = plans(product);
   const faq = parseFaq(product.faq);
   const others = products.filter((p) => p.id !== product.id).slice(0, 4);
@@ -189,15 +188,9 @@ export default async function BuyPage({ params }: { params: Promise<{ slug: stri
               productId={product.id}
               slug={product.slug}
               options={options}
-              loggedIn={!!me}
               free={null}
               recurring={product.recurring}
-              autoIssue={Boolean(product.autoIssue)}
-              deliveryNote={
-                product.autoIssue
-                  ? "Доступ зʼявиться одразу після оплати"
-                  : product.deliveryNote
-              }
+              deliveryNote={deliveryNote(Boolean(product.autoIssue))}
             />
           </div>
         </aside>

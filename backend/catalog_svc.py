@@ -149,7 +149,7 @@ def serialize_mini_product(raw: dict) -> dict:
         "price6": by_months.get(6, 0),
         "price12": by_months.get(12, 0),
         "faq": "",
-        "deliveryNote": "Після оплати менеджер надішле доступ у Telegram або на пошту.",
+        "deliveryNote": "Після оплати менеджер надішле доступ у Telegram.",
         "visible": True,
         "autoIssue": False,
         "categoryId": str(raw.get("catalog_id") or ""),
@@ -200,8 +200,11 @@ def apply_stock_settings(catalog: dict) -> dict:
             product["autoIssue"] = False
             continue
         product["autoIssue"] = settings.get(pid, False)
-        if product["autoIssue"]:
-            product["deliveryNote"] = "Доступ зʼявиться одразу після оплати"
+        product["deliveryNote"] = (
+            "Доступ одразу після оплати"
+            if product["autoIssue"]
+            else "Після оплати менеджер надішле доступ у Telegram."
+        )
     return catalog
 
 
