@@ -1,7 +1,6 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogoutButton } from "./LogoutButton";
 import { SUPPORT_TG } from "@/lib/seo";
 
 type UserChip = {
@@ -56,17 +55,14 @@ export function SiteNav({ user }: { user?: UserChip | null }) {
 
       <div className="top-nav-actions">
         {user ? (
-          <span className="me-wrap">
-            <Link className="me" href="/cabinet">
-              {user.telegramPhoto ? (
-                <img className="av av-img" src={user.telegramPhoto} alt="" />
-              ) : (
-                <span className="av">{initials}</span>
-              )}
-              <span className="me-label">{short}</span>
-            </Link>
-            <LogoutButton compact />
-          </span>
+          <Link className="me" href="/cabinet">
+            {user.telegramPhoto ? (
+              <img className="av av-img" src={user.telegramPhoto} alt="" />
+            ) : (
+              <span className="av">{initials}</span>
+            )}
+            <span className="me-label">{short}</span>
+          </Link>
         ) : (
           <Link className="enter" href="/login">Увійти</Link>
         )}
