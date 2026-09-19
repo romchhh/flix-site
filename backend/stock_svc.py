@@ -293,6 +293,27 @@ def get_delivery_by_payment(payment_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+def delivery_admin_payload(payment_row: dict) -> dict:
+    """Дані автовидачі для повідомлення адміну в боті."""
+    invoice_id = str(payment_row.get("invoice_id") or "")
+    site_user_id = str(payment_row.get("site_user_id") or "")
+    try:
+        product_id = int(payment_row["product_id"])
+    except (TypeError, ValueError, KeyError):
+        return {"autoIssue": False, "delivered": False}
+    auto_issue = is_auto_issue(product_id)
+    access = get_delivery_access_for_payment(site_user_id, invoice_id) if invoice_id and site_user_id else None
+    payload: dict = {"autoIssue": auto_issue, "delivered": bool(access)}
+    if access:
+        payload.update({
+            "login": access.get("login"),
+            "password": access.get("password"),
+            "profileName": access.get("profileName"),
+            "pin": access.get("pin"),
+        })
+    return payload
+
+
 def get_delivery_access_for_payment(site_user_id: str, payment_id: str) -> dict | None:
     with db() as conn:
         row = conn.execute(

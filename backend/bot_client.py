@@ -121,6 +121,23 @@ async def forward_mono_webhook(payload: dict):
     return await bot_request("POST", "/api/v1/webhooks/mono", json=payload)
 
 
+async def fulfill_site_payment(
+    *,
+    invoice_id: str,
+    auto_issue: bool,
+    delivery: dict,
+):
+    return await bot_request(
+        "POST",
+        "/api/v1/payments/site-fulfill",
+        json={
+            "invoice_id": invoice_id,
+            "autoIssue": auto_issue,
+            "delivery": delivery,
+        },
+    )
+
+
 async def get_payment(invoice_id: str):
     return await bot_request("GET", f"/api/v1/payments/{invoice_id}")
 
