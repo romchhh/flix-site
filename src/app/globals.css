@@ -128,6 +128,10 @@ h1{font-size:clamp(44px,8vw,88px);line-height:.95;letter-spacing:-.035em;font-we
 h1 em,h2 em{font-style:normal;color:var(--blue)}
 h2{font-size:clamp(30px,5vw,54px);line-height:.98;letter-spacing:-.03em;font-weight:800;text-transform:uppercase;margin-bottom:10px}
 .h-sm{font-size:clamp(30px,5.4vw,46px)}
+.catalog-title-oneline{white-space:nowrap}
+@media (max-width:640px){
+  .catalog-title-oneline{font-size:clamp(26px,7vw,34px)}
+}
 .lede{margin-top:22px;max-width:36ch;font-size:clamp(16px,1.7vw,19px);line-height:1.5;color:#232838;font-weight:500}
 .hero-acts{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}
 @media (max-width:640px){
@@ -603,11 +607,11 @@ iframe[src*="oauth.telegram.org"],.tgme_widget_login,.tgme_widget_login_error,[i
   .buy-page{padding-bottom:calc(92px + env(safe-area-inset-bottom, 0px))}
   .buy-checkout{padding:18px 16px 20px}
   .buy-summary{
-    flex-direction:column;align-items:flex-start;gap:12px;
+    flex-direction:row;align-items:center;gap:14px;
     margin-bottom:14px;padding-bottom:14px
   }
   .buy-thumb,.buy-thumb.buy-thumb-fallback{
-    width:min(50%,168px);height:auto;flex:0 0 auto;aspect-ratio:1/1;border-radius:18px
+    width:88px;height:88px;flex:0 0 88px;aspect-ratio:1/1;border-radius:18px
   }
   .buy-summary-text h2{font-size:19px}
   .buy-form-block{padding:16px 0}

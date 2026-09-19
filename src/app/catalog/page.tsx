@@ -80,8 +80,8 @@ export default async function CatalogPage({ searchParams }: Props) {
       <SiteHeader />
       <div className="wrap">
       <section style={{ paddingTop: 44, paddingBottom: 30 }}>
-        <h1 className="h-sm" style={{ marginBottom: 10 }}>
-          {current ? <>{current.name}</> : <>Усі<br /><em>підписки</em></>}
+        <h1 className={`h-sm${current ? "" : " catalog-title-oneline"}`} style={{ marginBottom: 10 }}>
+          {current ? <>{current.name}</> : <>Усі <em>підписки</em></>}
         </h1>
         <p className="sec-sub">
           {products.length} {products.length === 1 ? "товар" : products.length < 5 ? "товари" : "товарів"}
