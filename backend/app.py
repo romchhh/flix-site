@@ -1185,10 +1185,12 @@ async def admin_stock(request: Request, product_id: int | None = None):
         return json_error(e.message, e.status)
     products = catalog_data.get("products") or []
     stock_svc.ensure_bundle_sources(products)
+    stock_svc.refresh_netflix_stock_aliases(products)
+    stock_svc.migrate_netflix_credentials(products)
     settings = stock_svc.list_product_settings(
         [int(p.get("botId") or p.get("id")) for p in products if str(p.get("botId") or p.get("id")).isdigit()]
     )
-    creds = stock_svc.list_credentials(product_id)
+    creds = stock_svc.list_credentials(product_id, products)
     stock_counts: dict[str, int] = {}
     for cred in creds:
         pid = cred["productId"]
@@ -1196,8 +1198,13 @@ async def admin_stock(request: Request, product_id: int | None = None):
     payload_products = []
     for p in products:
         pid = int(p.get("botId") or p.get("id"))
+        source_pid = stock_svc.stock_source_product_id(pid, products)
         bundle_sources = stock_svc.bundle_source_labels(pid, products)
         bundle_stock = stock_svc.bundle_stock_free(pid, products)
+        stock_master = products and next(
+            (x for x in products if int(x.get("botId") or x.get("id")) == source_pid),
+            None,
+        )
         payload_products.append({
             "id": str(pid),
             "name": p.get("name"),
@@ -1206,7 +1213,9 @@ async def admin_stock(request: Request, product_id: int | None = None):
             "autoIssue": settings.get(pid, False),
             "isBundle": bool(bundle_sources),
             "bundleSources": bundle_sources,
-            "stockFree": bundle_stock if bundle_sources else stock_counts.get(str(pid), 0),
+            "stockProductId": str(source_pid) if source_pid != pid else None,
+            "sharedStockName": stock_master.get("name") if source_pid != pid and stock_master else None,
+            "stockFree": bundle_stock if bundle_sources else stock_counts.get(str(source_pid), 0),
         })
     return {
         "products": payload_products,
@@ -1276,6 +1285,11 @@ async def admin_stock_add(request: Request):
             "Цей товар — набір. Додавай акаунти окремо до складів сервісів, що входять у набір.",
             400,
         )
+    try:
+        catalog_data = await catalog_svc.get_catalog()
+        catalog_products = catalog_data.get("products") or []
+    except BotAPIError:
+        catalog_products = []
     profile_slots = body.get("profileSlots")
     if profile_slots is not None and not isinstance(profile_slots, list):
         profile_slots = None
@@ -1287,6 +1301,7 @@ async def admin_stock_add(request: Request):
         slots_total=int(body.get("slotsTotal") or 1),
         note=(body.get("note") or "").strip(),
         profile_slots=profile_slots,
+        catalog_products=catalog_products,
     )
     return {"ok": True, "credential": cred}
 

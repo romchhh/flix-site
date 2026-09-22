@@ -63,10 +63,9 @@ SHEET_CONFIGS: dict[str, dict[str, Any]] = {
     },
 }
 
-# Google Sheets: жовтий (доступний) vs синій (виданий) для Netflix
-_COLOR_AVAILABLE = (1.0, 0.949, 0.8)       # жовтий
-_COLOR_ISSUED = (0.435, 0.659, 0.863)      # синій
-_COLOR_AVAILABLE_ALT = (0.275, 0.851, 0.953)  # наявний бірюзовий у таблиці
+# Google Sheets Netflix: жовтий/білий = вільний, бірюзовий/синій = виданий
+_COLOR_ISSUED = (0.435, 0.659, 0.863)
+_NETFLIX_ISSUED_CYAN = (0.275, 0.851, 0.953)  # «сині» рядки у таблиці Netflix
 
 _lock = threading.Lock()
 _last_sync: dict[str, Any] = {
@@ -98,16 +97,27 @@ def _cell(row: list, idx: int) -> str:
     return ""
 
 
-def _is_yellowish(r: float, g: float, b: float) -> bool:
-    if r > 0.9 and g > 0.85 and b < 0.65:
-        return True
-    if abs(r - _COLOR_AVAILABLE_ALT[0]) < 0.05 and abs(g - _COLOR_AVAILABLE_ALT[1]) < 0.05:
-        return True
-    return False
-
-
 def _is_blueish(r: float, g: float, b: float) -> bool:
     return b > 0.75 and g > 0.5 and r < 0.6
+
+
+def _netflix_row_is_used(row: list, row_data: dict | None) -> bool:
+    """Виданий: є термін у col D або рядок забарвлений (бірюзовий/синій)."""
+    if _cell(row, 3):
+        return True
+    color = _row_bg_color(row_data)
+    if not color:
+        return False
+    r, g, b = color
+    if (
+        abs(r - _NETFLIX_ISSUED_CYAN[0]) < 0.06
+        and abs(g - _NETFLIX_ISSUED_CYAN[1]) < 0.06
+        and abs(b - _NETFLIX_ISSUED_CYAN[2]) < 0.06
+    ):
+        return True
+    if _is_blueish(r, g, b):
+        return True
+    return False
 
 
 def _row_bg_color(row_data: dict | None) -> tuple[float, float, float] | None:
@@ -175,19 +185,11 @@ def resolve_product_id(
 
 
 def _netflix_available(row: list, row_data: dict | None) -> bool:
-    expiry = _cell(row, 3)
-    if expiry:
-        return False
     login = _cell(row, 1)
     password = _cell(row, 2)
     if not login or not password:
         return False
-    color = _row_bg_color(row_data)
-    if color:
-        r, g, b = color
-        if _is_blueish(r, g, b) and not _is_yellowish(r, g, b):
-            return False
-    return True
+    return not _netflix_row_is_used(row, row_data)
 
 
 def _filmix_available(row: list) -> bool:
@@ -427,6 +429,9 @@ def _upsert_credential(
 
 def import_stock(catalog_products: list[dict]) -> dict:
     """Імпорт доступних акаунтів з Google Таблиць у склад сайту."""
+    from .stock_svc import refresh_netflix_stock_aliases, stock_source_product_id
+
+    refresh_netflix_stock_aliases(catalog_products)
     global _last_sync
     result = {"ok": False, "imported": 0, "deactivated": 0, "errors": [], "byService": {}}
 
@@ -472,6 +477,7 @@ def import_stock(catalog_products: list[dict]) -> dict:
         if not product_id:
             result["errors"].append(f"Товар для {service_key} не знайдено в каталозі")
             continue
+        product_id = stock_source_product_id(product_id, catalog_products)
 
         ext_id = item["external_id"]
         seen_ext.add(ext_id)
@@ -616,7 +622,7 @@ def _mark_netflix(service, sheet_name: str, row: int, expiry: str) -> None:
     if sheet_id is not None:
         service.spreadsheets().batchUpdate(
             spreadsheetId=GOOGLE_SHEETS_ID,
-            body={"requests": [_color_request(sheet_id, row, 0, 5, _COLOR_ISSUED)]},
+            body={"requests": [_color_request(sheet_id, row, 0, 5, _NETFLIX_ISSUED_CYAN)]},
         ).execute()
 
 

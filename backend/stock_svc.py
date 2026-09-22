@@ -192,6 +192,71 @@ def _product_name_by_id(product_id: int, catalog_products: list[dict]) -> str | 
     return None
 
 
+_NETFLIX_STOCK_ID: int | None = None
+_NETFLIX_MONTHLY_IDS: set[int] = set()
+
+
+def _is_netflix_monthly_name(name: str | None) -> bool:
+    n = (name or "").lower()
+    return "netflix" in n and "помісячно" in n and "+" not in n
+
+
+def _is_netflix_standalone_name(name: str | None) -> bool:
+    n = (name or "").lower()
+    if "netflix" not in n or "+" in n or "помісячно" in n:
+        return False
+    return "окремий" in n or "premium" in n
+
+
+def refresh_netflix_stock_aliases(catalog_products: list[dict]) -> None:
+    """Помісячний Netflix і окремий акаунт — один склад."""
+    global _NETFLIX_STOCK_ID, _NETFLIX_MONTHLY_IDS
+    monthly_ids: set[int] = set()
+    standalone_id: int | None = None
+    for product in catalog_products:
+        pid = _product_id_value(product)
+        if pid is None:
+            continue
+        name = product.get("name") or ""
+        if _is_netflix_monthly_name(name):
+            monthly_ids.add(pid)
+        elif _is_netflix_standalone_name(name):
+            if standalone_id is None:
+                standalone_id = pid
+    _NETFLIX_STOCK_ID = standalone_id
+    _NETFLIX_MONTHLY_IDS = monthly_ids
+
+
+def stock_source_product_id(product_id: int, catalog_products: list[dict] | None = None) -> int:
+    if catalog_products:
+        refresh_netflix_stock_aliases(catalog_products)
+    pid = int(product_id)
+    if _NETFLIX_STOCK_ID and pid in _NETFLIX_MONTHLY_IDS:
+        return _NETFLIX_STOCK_ID
+    if not catalog_products and pid == 55 and (_NETFLIX_STOCK_ID == 10 or _NETFLIX_STOCK_ID is None):
+        return 10
+    return pid
+
+
+def shares_netflix_stock(product_id: int) -> bool:
+    pid = int(product_id)
+    return _NETFLIX_STOCK_ID is not None and (
+        pid == _NETFLIX_STOCK_ID or pid in _NETFLIX_MONTHLY_IDS
+    )
+
+
+def migrate_netflix_credentials(catalog_products: list[dict]) -> None:
+    refresh_netflix_stock_aliases(catalog_products)
+    if not _NETFLIX_STOCK_ID or not _NETFLIX_MONTHLY_IDS:
+        return
+    with db() as conn:
+        for monthly_id in _NETFLIX_MONTHLY_IDS:
+            conn.execute(
+                "UPDATE credentials SET product_id = ? WHERE product_id = ?",
+                (_NETFLIX_STOCK_ID, monthly_id),
+            )
+
+
 def guess_bundle_sources(bundle_name: str, catalog_products: list[dict]) -> list[int]:
     if "+" not in (bundle_name or ""):
         return []
@@ -363,14 +428,15 @@ def bundle_source_labels(product_id: int, catalog_products: list[dict] | None = 
     ]
 
 
-def free_slots_for_product(product_id: int) -> int:
+def free_slots_for_product(product_id: int, catalog_products: list[dict] | None = None) -> int:
+    source_id = stock_source_product_id(product_id, catalog_products)
     with db() as conn:
         rows = conn.execute(
             """
             SELECT slots_total, slots_used FROM credentials
             WHERE product_id = ? AND active = 1
             """,
-            (int(product_id),),
+            (int(source_id),),
         ).fetchall()
     total = 0
     for row in rows:
@@ -500,7 +566,9 @@ def credential_public(row: dict) -> dict:
     }
 
 
-def list_credentials(product_id: int | None = None) -> list[dict]:
+def list_credentials(product_id: int | None = None, catalog_products: list[dict] | None = None) -> list[dict]:
+    if product_id is not None:
+        product_id = stock_source_product_id(product_id, catalog_products)
     base_sql = """
         SELECT c.*,
             (
@@ -558,10 +626,12 @@ def add_credential(
     slots_total: int = 1,
     note: str = "",
     profile_slots: list[dict] | None = None,
+    catalog_products: list[dict] | None = None,
 ) -> dict:
     cid = new_id()
     slots_n = max(1, int(slots_total))
     profile_enc = _encode_profile_slots(profile_slots)
+    storage_product_id = stock_source_product_id(product_id, catalog_products)
     with db() as conn:
         conn.execute(
             """
@@ -572,7 +642,7 @@ def add_credential(
             """,
             (
                 cid,
-                int(product_id),
+                int(storage_product_id),
                 login.strip(),
                 encrypt(password),
                 encrypt(totp_secret.strip()) if totp_secret and totp_secret.strip() else None,
@@ -1112,6 +1182,10 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
         if not row:
             pid = str(sub.get("productId") or "")
             pool = unlinked.get(pid) or []
+            if not pool and pid.isdigit():
+                source_pid = str(stock_source_product_id(int(pid)))
+                if source_pid != pid:
+                    pool = unlinked.get(source_pid) or []
             if pool:
                 row = pool.pop(0)
             elif pid and is_bundle_product(int(pid)):
@@ -1326,6 +1400,8 @@ def _mark_sheet_issued(cred: dict, payment_row: dict, expires_at: str, months: i
 async def sync_from_sheets(catalog_products: list[dict]) -> dict:
     from . import sheets_svc
 
+    refresh_netflix_stock_aliases(catalog_products)
+    migrate_netflix_credentials(catalog_products)
     return sheets_svc.import_stock(catalog_products)
 
 
@@ -1398,12 +1474,13 @@ def try_deliver_for_payment(payment_row: dict, months: int = 1) -> dict:
     if get_delivery_by_payment(invoice_id):
         return {"ok": True, "fresh": False}
 
+    source_product_id = stock_source_product_id(product_id)
     with db() as conn:
         delivery_id = _allocate_delivery(
             conn,
             payment_row=payment_row,
             product_id=product_id,
-            source_product_id=product_id,
+            source_product_id=source_product_id,
             bundle_product_id=None,
             part_label=None,
             months=months,

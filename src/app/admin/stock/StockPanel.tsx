@@ -10,6 +10,8 @@ type ProductRow = {
   needsProfilePin?: boolean;
   isBundle?: boolean;
   bundleSources?: Array<{ id: string; name: string }>;
+  stockProductId?: string | null;
+  sharedStockName?: string | null;
 };
 
 type ProfileSlot = { num: string; pin: string };
@@ -112,12 +114,14 @@ export function StockPanel({
   const [statusFilter, setStatusFilter] = useState<"all" | StockStatus>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   const selected = products.find((p) => p.id === productId);
   const bundleProduct = Boolean(selected?.isBundle);
   const profileProduct = needsProfilePin(selected);
+  const stockProductId = selected?.stockProductId || selected?.id || productId;
   const productRows = productId && !bundleProduct
-    ? initial.filter((c) => c.productId === productId)
+    ? initial.filter((c) => c.productId === stockProductId)
     : bundleProduct
       ? []
       : initial;
@@ -216,72 +220,58 @@ export function StockPanel({
       </div>
 
       <div className="panel" style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 14 }}>Автовидача по товарах</h2>
-        <div className="tw">
-          <table>
-            <thead>
-              <tr><th>Товар</th><th>На складі</th><th>Автовидача</th></tr>
-            </thead>
-            <tbody>
-              {products.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <b>{p.name}</b>
-                    {p.isBundle && <small className="muted" style={{ display: "block", marginTop: 4 }}>набір</small>}
-                  </td>
-                  <td className="n">{p.stockFree}</td>
-                  <td>
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={p.autoIssue}
-                        disabled={busy}
-                        onChange={() => run(async () => {
-                          await api(`/api/admin/stock/products/${p.id}`, {
-                            method: "POST",
-                            body: JSON.stringify({ autoIssue: !p.autoIssue }),
-                          });
-                        })}
-                      />
-                      {p.autoIssue ? "увімкнено" : "вручну"}
-                    </label>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 12 }}>Склад</h2>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          {products.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={`btn sm${productId === p.id ? "" : " ghost"}`}
+              onClick={() => setProductId(p.id)}
+            >
+              {p.name}
+              {!p.isBundle && (
+                <span style={{ opacity: 0.75, marginLeft: 6 }}>({p.stockFree})</span>
+              )}
+            </button>
+          ))}
         </div>
-      </div>
 
-      <div className="panel" style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 14 }}>Додати акаунт</h2>
-        <div className="f2">
-          <div className="field">
-            <label>Товар</label>
-            <select value={productId} onChange={(e) => setProductId(e.target.value)}>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+          <div>
+            <h3 style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>
+              Акаунти{selected ? `: ${selected.name}` : ""}
+            </h3>
+            {!bundleProduct && (
+              <p className="muted" style={{ margin: 0 }}>
+                Вільних: {counts.available} · Продано: {counts.sold} · Вимкнених: {counts.disabled}
+              </p>
+            )}
+            {selected?.sharedStockName && (
+              <p className="muted" style={{ marginTop: 6, marginBottom: 0 }}>
+                Спільний склад з «{selected.sharedStockName}»
+              </p>
+            )}
           </div>
-          {!bundleProduct && (
-            <div className="field">
-              <label>Слотів</label>
-              <input type="number" min={1} value={slotsTotal} onChange={(e) => setSlotsTotal(Number(e.target.value) || 1)} />
-            </div>
+          {!bundleProduct && productRows.length > 0 && (
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Пошук: логін, рядок, оплата…"
+              style={{ minWidth: 220, maxWidth: 320 }}
+            />
           )}
         </div>
 
-        {bundleProduct && selected?.bundleSources?.length ? (
-          <div className="warn-box" style={{ marginBottom: 14 }}>
-            <b>Це набір — окремий склад не потрібен</b>
+        {bundleProduct ? (
+          <div className="warn-box">
+            <b>Це набір — окремого складу немає</b>
             <p className="muted" style={{ marginTop: 8, marginBottom: 0 }}>
               Після оплати сайт видасть доступ зі складів:{" "}
-              {selected.bundleSources.map((source) => source.name).join(" + ")}.
-              Додавай акаунти до цих товарів окремо — набір забере по одному з кожного складу.
+              {selected?.bundleSources?.map((source) => source.name).join(" + ") || "—"}.
             </p>
             <ul style={{ margin: "10px 0 0", paddingLeft: 18 }}>
-              {selected.bundleSources.map((source) => {
+              {selected?.bundleSources?.map((source) => {
                 const stock = products.find((p) => p.id === source.id)?.stockFree ?? 0;
                 return (
                   <li key={source.id}>
@@ -299,136 +289,6 @@ export function StockPanel({
               })}
             </ul>
           </div>
-        ) : null}
-
-        {!bundleProduct && (
-        <>
-        <div className="f2">
-          <div className="field">
-            <label>Логін</label>
-            <input value={login} onChange={(e) => setLogin(e.target.value)} placeholder="email@example.com" />
-          </div>
-          <div className="field">
-            <label>Пароль</label>
-            <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
-          </div>
-        </div>
-
-        {profileProduct && (
-          <div className="field" style={{ marginTop: 4 }}>
-            <label>Профілі HBO</label>
-            <p className="muted" style={{ marginBottom: 10 }}>
-              Для кожного слота вкажи номер профілю та PIN-код. Клієнт отримає їх разом із логіном.
-            </p>
-            <div style={{ display: "grid", gap: 10 }}>
-              {profileSlots.map((slot, index) => (
-                <div key={index} className="f2">
-                  <div className="field">
-                    <label>Слот {index + 1} · номер профілю</label>
-                    <input
-                      value={slot.num}
-                      onChange={(e) => setProfileSlots((prev) => prev.map((item, i) => (
-                        i === index ? { ...item, num: e.target.value } : item
-                      )))}
-                      placeholder="2"
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Слот {index + 1} · PIN</label>
-                    <input
-                      value={slot.pin}
-                      onChange={(e) => setProfileSlots((prev) => prev.map((item, i) => (
-                        i === index ? { ...item, pin: e.target.value } : item
-                      )))}
-                      placeholder="1234"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {!profileProduct && (
-          <div className="field">
-            <label>2FA ключ (base32, опційно)</label>
-            <input value={totpSecret} onChange={(e) => setTotpSecret(e.target.value)} placeholder="JBSWY3DPEHPK3PXP" />
-            <p className="muted" style={{ marginTop: 6 }}>Для ChatGPT та інших — клієнт отримає тимчасовий код у кабінеті.</p>
-          </div>
-        )}
-        <div className="field">
-          <label>Примітка</label>
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="спільний акаунт, 4 користувача…" />
-        </div>
-        <button
-          className="btn sm"
-          type="button"
-          disabled={busy || !productId || !login || !password || !profileReady}
-          onClick={() => run(async () => {
-            await api("/api/admin/stock/credentials", {
-              method: "POST",
-              body: JSON.stringify({
-                productId,
-                login,
-                password,
-                totpSecret: profileProduct ? "" : totpSecret,
-                slotsTotal,
-                note,
-                profileSlots: profileProduct
-                  ? profileSlots.map((slot) => ({ num: slot.num.trim(), pin: slot.pin.trim() }))
-                  : undefined,
-              }),
-            });
-            setLogin("");
-            setPassword("");
-            setTotpSecret("");
-            setNote("");
-            setSlotsTotal(1);
-            setProfileSlots(emptyProfileSlots(1));
-          })}
-        >
-          Додати на склад
-        </button>
-        {selected && (
-          <p className="muted" style={{ marginTop: 10 }}>
-            {selected.autoIssue
-              ? profileProduct
-                ? "Після оплати клієнт отримає логін, пароль, номер профілю та PIN у кабінеті."
-                : "Після оплати логін і пароль зʼявляться в кабінеті одразу."
-              : "Автовидача вимкнена — доступ видає менеджер."}
-          </p>
-        )}
-        </>
-        )}
-      </div>
-
-      <div className="panel">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-          <div>
-            <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 6 }}>
-              Акаунти{selected ? `: ${selected.name}` : ""}
-            </h2>
-            {!bundleProduct && (
-              <p className="muted" style={{ margin: 0 }}>
-                Вільних: {counts.available} · Продано: {counts.sold} · Вимкнених: {counts.disabled}
-              </p>
-            )}
-          </div>
-          {!bundleProduct && productRows.length > 0 && (
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Пошук: логін, рядок, оплата…"
-              style={{ minWidth: 220, maxWidth: 320 }}
-            />
-          )}
-        </div>
-
-        {bundleProduct ? (
-          <p className="muted">
-            У набору немає власного складу. Дивись акаунти в окремих товарах:{" "}
-            {selected?.bundleSources?.map((source) => source.name).join(", ") || "—"}.
-          </p>
         ) : productRows.length === 0 ? (
           <p className="muted">На складі порожньо.</p>
         ) : (
@@ -549,6 +409,159 @@ export function StockPanel({
             )}
           </>
         )}
+
+        {!bundleProduct && (
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border, #e5e5e5)" }}>
+            <button
+              type="button"
+              className="btn sm ghost"
+              onClick={() => setShowAddForm((v) => !v)}
+            >
+              {showAddForm ? "Сховати форму" : "+ Додати акаунт вручну"}
+            </button>
+
+            {showAddForm && (
+              <div style={{ marginTop: 16 }}>
+                <div className="f2">
+                  <div className="field">
+                    <label>Слотів</label>
+                    <input type="number" min={1} value={slotsTotal} onChange={(e) => setSlotsTotal(Number(e.target.value) || 1)} />
+                  </div>
+                </div>
+
+                <div className="f2">
+                  <div className="field">
+                    <label>Логін</label>
+                    <input value={login} onChange={(e) => setLogin(e.target.value)} placeholder="email@example.com" />
+                  </div>
+                  <div className="field">
+                    <label>Пароль</label>
+                    <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+                  </div>
+                </div>
+
+                {profileProduct && (
+                  <div className="field" style={{ marginTop: 4 }}>
+                    <label>Профілі HBO</label>
+                    <p className="muted" style={{ marginBottom: 10 }}>
+                      Для кожного слота вкажи номер профілю та PIN-код.
+                    </p>
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {profileSlots.map((slot, index) => (
+                        <div key={index} className="f2">
+                          <div className="field">
+                            <label>Слот {index + 1} · номер профілю</label>
+                            <input
+                              value={slot.num}
+                              onChange={(e) => setProfileSlots((prev) => prev.map((item, i) => (
+                                i === index ? { ...item, num: e.target.value } : item
+                              )))}
+                              placeholder="2"
+                            />
+                          </div>
+                          <div className="field">
+                            <label>Слот {index + 1} · PIN</label>
+                            <input
+                              value={slot.pin}
+                              onChange={(e) => setProfileSlots((prev) => prev.map((item, i) => (
+                                i === index ? { ...item, pin: e.target.value } : item
+                              )))}
+                              placeholder="1234"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!profileProduct && (
+                  <div className="field">
+                    <label>2FA ключ (base32, опційно)</label>
+                    <input value={totpSecret} onChange={(e) => setTotpSecret(e.target.value)} placeholder="JBSWY3DPEHPK3PXP" />
+                  </div>
+                )}
+                <div className="field">
+                  <label>Примітка</label>
+                  <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="спільний акаунт…" />
+                </div>
+                <button
+                  className="btn sm"
+                  type="button"
+                  disabled={busy || !productId || !login || !password || !profileReady}
+                  onClick={() => run(async () => {
+                    await api("/api/admin/stock/credentials", {
+                      method: "POST",
+                      body: JSON.stringify({
+                        productId,
+                        login,
+                        password,
+                        totpSecret: profileProduct ? "" : totpSecret,
+                        slotsTotal,
+                        note,
+                        profileSlots: profileProduct
+                          ? profileSlots.map((slot) => ({ num: slot.num.trim(), pin: slot.pin.trim() }))
+                          : undefined,
+                      }),
+                    });
+                    setLogin("");
+                    setPassword("");
+                    setTotpSecret("");
+                    setNote("");
+                    setSlotsTotal(1);
+                    setProfileSlots(emptyProfileSlots(1));
+                    setShowAddForm(false);
+                  })}
+                >
+                  Додати на склад
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
+        <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 14 }}>Автовидача по товарах</h2>
+        <div className="tw">
+          <table>
+            <thead>
+              <tr><th>Товар</th><th>На складі</th><th>Автовидача</th></tr>
+            </thead>
+            <tbody>
+              {products.map((p) => (
+                <tr key={p.id}>
+                  <td>
+                    <b>{p.name}</b>
+                    {p.isBundle && <small className="muted" style={{ display: "block", marginTop: 4 }}>набір</small>}
+                    {p.sharedStockName && (
+                      <small className="muted" style={{ display: "block", marginTop: 4 }}>
+                        склад: {p.sharedStockName}
+                      </small>
+                    )}
+                  </td>
+                  <td className="n">{p.stockFree}</td>
+                  <td>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={p.autoIssue}
+                        disabled={busy}
+                        onChange={() => run(async () => {
+                          await api(`/api/admin/stock/products/${p.id}`, {
+                            method: "POST",
+                            body: JSON.stringify({ autoIssue: !p.autoIssue }),
+                          });
+                        })}
+                      />
+                      {p.autoIssue ? "увімкнено" : "вручну"}
+                    </label>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );
