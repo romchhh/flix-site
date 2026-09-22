@@ -23,8 +23,17 @@ type StockData = {
     slotsFree: number;
     note: string;
     active: boolean;
+    fromSheets?: boolean;
     profileSlots?: Array<{ num: string }>;
   }>;
+  sheetsSync?: {
+    at: string | null;
+    ok: boolean;
+    imported: number;
+    deactivated: number;
+    byService?: Record<string, number>;
+    errors?: string[];
+  };
 };
 
 export default async function AdminStock() {
@@ -41,6 +50,7 @@ export default async function AdminStock() {
       <StockPanel
         products={data?.products ?? []}
         credentials={data?.credentials ?? []}
+        sheetsSync={data?.sheetsSync}
       />
     </>
   );

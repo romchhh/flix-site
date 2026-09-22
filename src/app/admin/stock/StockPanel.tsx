@@ -24,7 +24,18 @@ type CredentialRow = {
   slotsFree: number;
   note: string;
   active: boolean;
+  fromSheets?: boolean;
   profileSlots?: Array<{ num: string }>;
+};
+
+type SheetsSyncStatus = {
+  at: string | null;
+  ok: boolean;
+  imported: number;
+  deactivated: number;
+  available?: number;
+  byService?: Record<string, number>;
+  errors?: string[];
 };
 
 function needsProfilePin(product?: ProductRow | null) {
@@ -50,14 +61,17 @@ export function StockPanel({
   products,
   credentials: initial,
   filterProductId,
+  sheetsSync: initialSync,
 }: {
   products: ProductRow[];
   credentials: CredentialRow[];
   filterProductId?: string;
+  sheetsSync?: SheetsSyncStatus;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sheetsSync, setSheetsSync] = useState<SheetsSyncStatus | undefined>(initialSync);
   const [productId, setProductId] = useState(filterProductId || products[0]?.id || "");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -100,9 +114,46 @@ export function StockPanel({
 
   const profileReady = !profileProduct || profileSlots.every((slot) => slot.num.trim() && slot.pin.trim());
 
+  const syncLabel = sheetsSync?.at
+    ? `Останнє оновлення: ${new Date(sheetsSync.at).toLocaleString("uk-UA")}`
+    : "Ще не синхронізовано";
+
   return (
     <>
       {error && <div className="warn-box" style={{ marginBottom: 16 }}>{error}</div>}
+
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+          <div>
+            <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 6 }}>Google Таблиці</h2>
+            <p className="muted" style={{ margin: 0 }}>{syncLabel}</p>
+            {sheetsSync?.byService && Object.keys(sheetsSync.byService).length > 0 && (
+              <p className="muted" style={{ marginTop: 6, marginBottom: 0 }}>
+                Імпортовано: {Object.entries(sheetsSync.byService).map(([k, v]) => `${k}: ${v}`).join(", ")}
+              </p>
+            )}
+            {sheetsSync?.errors?.length ? (
+              <p className="muted" style={{ marginTop: 6, marginBottom: 0, color: "var(--red)" }}>
+                {sheetsSync.errors.join("; ")}
+              </p>
+            ) : null}
+          </div>
+          <button
+            className="btn sm"
+            type="button"
+            disabled={busy}
+            onClick={() => run(async () => {
+              const data = await api("/api/admin/stock/sync-sheets", { method: "POST", body: "{}" });
+              setSheetsSync(data);
+            })}
+          >
+            Оновити з таблиць
+          </button>
+        </div>
+        <p className="muted" style={{ margin: 0 }}>
+          Netflix, Filmix, GPT, HBO, IPTV — автоматично кожну хвилину. Після видачі акаунт позначається у таблиці.
+        </p>
+      </div>
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 14 }}>Автовидача по товарах</h2>
@@ -306,7 +357,7 @@ export function StockPanel({
           <div className="tw">
             <table>
               <thead>
-                <tr><th>Логін</th><th>2FA</th><th>Профілі</th><th>Слоти</th><th>Статус</th><th>Примітка</th><th></th></tr>
+                <tr><th>Логін</th><th>2FA</th><th>Профілі</th><th>Слоти</th><th>Джерело</th><th>Статус</th><th>Примітка</th><th></th></tr>
               </thead>
               <tbody>
                 {rows.map((c) => (
@@ -319,6 +370,7 @@ export function StockPanel({
                         : "—"}
                     </td>
                     <td className="n">{c.slotsUsed}/{c.slotsTotal}</td>
+                    <td className="muted">{c.fromSheets ? "таблиця" : "вручну"}</td>
                     <td>{c.active ? "активний" : "вимкнений"}</td>
                     <td className="muted">{c.note || "—"}</td>
                     <td>

@@ -3,17 +3,21 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Arrow } from "@/components/Logo";
+import { IptvAccess } from "@/components/IptvAccess";
 
 type DeliveryPart = {
   id: string;
-  login: string;
-  password: string;
+  login?: string | null;
+  password?: string | null;
   hasTotp?: boolean;
   profileName?: string | null;
   pin?: string | null;
   partLabel?: string | null;
   label?: string | null;
   expiresAt?: string | null;
+  isIptv?: boolean;
+  playlistUrl?: string | null;
+  deliveryInstructions?: string | null;
 };
 
 type Delivery = DeliveryPart & {
@@ -157,8 +161,12 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
 
           {paid && data.autoIssue && data.delivery && (
             <div className="order-access">
-              <h2>Дані для входу</h2>
-              <p className="order-hint">Збережи їх — доступ уже активний.</p>
+              <h2>{data.delivery.isIptv ? "Ваш плейлист" : "Дані для входу"}</h2>
+              <p className="order-hint">
+                {data.delivery.isIptv
+                  ? "Скопіюй посилання та додай плейлист у додаток за інструкцією нижче."
+                  : "Збережи їх — доступ уже активний."}
+              </p>
               {deliveryParts.map((part, index) => (
                 <div key={part.id || index} style={{ marginBottom: index < deliveryParts.length - 1 ? 18 : 0 }}>
                   {(part.partLabel || part.label) && (
@@ -166,28 +174,36 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
                       {part.partLabel || part.label}
                     </p>
                   )}
-                  <div className="order-creds">
-                    {part.profileName && (
-                      <div>
-                        <small>Профіль</small>
-                        <code>{part.profileName}</code>
-                      </div>
-                    )}
-                    {part.pin && (
-                      <div>
-                        <small>PIN</small>
-                        <code>{part.pin}</code>
-                      </div>
-                    )}
-                    <div>
-                      <small>Логін</small>
-                      <code>{part.login}</code>
+                  {part.isIptv && part.playlistUrl ? (
+                    <IptvAccess playlistUrl={part.playlistUrl} instructions={part.deliveryInstructions} />
+                  ) : (
+                    <div className="order-creds">
+                      {part.profileName && (
+                        <div>
+                          <small>Профіль</small>
+                          <code>{part.profileName}</code>
+                        </div>
+                      )}
+                      {part.pin && (
+                        <div>
+                          <small>PIN</small>
+                          <code>{part.pin}</code>
+                        </div>
+                      )}
+                      {part.login && (
+                        <div>
+                          <small>Логін</small>
+                          <code>{part.login}</code>
+                        </div>
+                      )}
+                      {part.password && (
+                        <div>
+                          <small>Пароль</small>
+                          <code>{part.password}</code>
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <small>Пароль</small>
-                      <code>{part.password}</code>
-                    </div>
-                  </div>
+                  )}
                 </div>
               ))}
               {data.delivery.hasTotp && (

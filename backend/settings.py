@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from urllib.parse import urlparse
@@ -79,6 +80,27 @@ MAIL_FROM = os.getenv("MAIL_FROM", "flixмаркет <hello@flixmarket.com>")
 DB_PATH = os.getenv("SITE_DATABASE_PATH") or str(Path(__file__).resolve().parent / "data" / "site.db")
 CREDENTIALS_KEY = (os.getenv("CREDENTIALS_KEY") or "").strip()
 MONO_XTOKEN = (os.getenv("MONO_XTOKEN") or "").strip()
+
+GOOGLE_SHEETS_ID = (os.getenv("GOOGLE_SHEETS_ID") or "1tFHB8_W9jMS4D5b0iO-gHP3IlCTG5BbIRhDGGGxCJK0").strip()
+
+
+def _load_google_service_account() -> dict | None:
+    raw_json = (os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()
+    if raw_json:
+        try:
+            return json.loads(raw_json)
+        except json.JSONDecodeError:
+            pass
+    file_path = (os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE") or "").strip()
+    if file_path and Path(file_path).is_file():
+        try:
+            return json.loads(Path(file_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+    return None
+
+
+GOOGLE_SERVICE_ACCOUNT_INFO = _load_google_service_account()
 COOKIE_NAME = "flix_session"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "1" if APP_URL.startswith("https://") else "0") == "1"
 COOKIE_DOMAIN = (os.getenv("COOKIE_DOMAIN") or "").strip() or None

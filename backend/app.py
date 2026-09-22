@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
-from . import bot_client, catalog_svc, mail, monopay, payments_svc, stock_svc, tg_photo
+from . import bot_client, catalog_svc, mail, monopay, payments_svc, sheets_svc, stock_svc, tg_photo
 from .bot_client import BotAPIError
 from .db import (
     confirm_telegram_login,
@@ -74,6 +74,7 @@ async def _startup():
     _warn_if_telegram_token_mismatch()
     await _warn_if_bot_api_unreachable()
     asyncio.create_task(payments_svc.sync_loop())
+    asyncio.create_task(sheets_svc.sync_loop())
 
 
 async def _warn_if_bot_api_unreachable():
@@ -1201,6 +1202,7 @@ async def admin_stock(request: Request, product_id: int | None = None):
             "id": str(pid),
             "name": p.get("name"),
             "needsProfilePin": stock_svc.product_needs_profile_pin(p.get("name"), pid),
+            "isIptv": stock_svc.product_is_iptv(p.get("name"), pid),
             "autoIssue": settings.get(pid, False),
             "isBundle": bool(bundle_sources),
             "bundleSources": bundle_sources,
@@ -1209,7 +1211,32 @@ async def admin_stock(request: Request, product_id: int | None = None):
     return {
         "products": payload_products,
         "credentials": creds,
+        "sheetsSync": sheets_svc.sync_status(),
     }
+
+
+@app.get("/api/admin/stock/sync-status")
+async def admin_stock_sync_status(request: Request):
+    uid = current_user_id(request)
+    me = get_user(uid) if uid else None
+    if not me or not me["is_admin"]:
+        return json_error("Forbidden", 403)
+    return sheets_svc.sync_status()
+
+
+@app.post("/api/admin/stock/sync-sheets")
+async def admin_stock_sync_sheets(request: Request):
+    uid = current_user_id(request)
+    me = get_user(uid) if uid else None
+    if not me or not me["is_admin"]:
+        return json_error("Forbidden", 403)
+    try:
+        catalog_data = await catalog_svc.get_catalog()
+    except BotAPIError as e:
+        return json_error(e.message, e.status)
+    products = catalog_data.get("products") or []
+    result = await stock_svc.sync_from_sheets(products)
+    return {"ok": result.get("ok"), **result}
 
 
 @app.post("/api/admin/stock/products/{product_id}")

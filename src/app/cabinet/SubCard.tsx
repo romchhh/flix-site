@@ -12,6 +12,7 @@ import {
 import { SUPPORT_TG } from "@/lib/seo";
 import type { BillingEntry } from "@/lib/types";
 import { ServiceIcon } from "@/components/ServiceIcon";
+import { IptvAccess } from "@/components/IptvAccess";
 
 type Sub = {
   id: string;
@@ -27,6 +28,10 @@ type Sub = {
   login: string | null;
   password: string | null;
   hasTotp: boolean;
+  twoFaUrl?: string | null;
+  isIptv?: boolean;
+  playlistUrl?: string | null;
+  deliveryInstructions?: string | null;
   startsAt: string;
   expiresAt: string;
   source?: string;
@@ -226,6 +231,8 @@ export function SubCard({ sub }: { sub: Sub }) {
                   {part.password && <div className="row"><span>Пароль</span><b>{part.password}</b></div>}
                 </div>
               ))
+            ) : sub.isIptv && sub.playlistUrl ? (
+              <IptvAccess playlistUrl={sub.playlistUrl} instructions={sub.deliveryInstructions} />
             ) : (sub.login || sub.password || sub.profileName || sub.pin) ? (
               <div className="creds">
                 {sub.profileName && <div className="row"><span>Профіль</span><b>{sub.profileName}</b></div>}
@@ -260,11 +267,15 @@ export function SubCard({ sub }: { sub: Sub }) {
             )}
 
             <div className="sub-row-acts">
-              {sub.hasTotp && (
+              {sub.twoFaUrl ? (
+                <a className="btn sm soft" href={sub.twoFaUrl} target="_blank" rel="noopener noreferrer">
+                  Код 2FA
+                </a>
+              ) : sub.hasTotp ? (
                 <button className="btn sm soft" type="button" onClick={fetchCode} disabled={codeBusy}>
                   {codeBusy ? "Код…" : "Код 2FA"}
                 </button>
-              )}
+              ) : null}
               {billingOn && (
                 <button
                   className="btn sm soft"

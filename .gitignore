@@ -8,6 +8,7 @@ myenv/
 backend.pid
 backend.log
 .env
+telebots-e-commerce-8ed32a0aff15.json
 .next/
 node_modules/
 *.db

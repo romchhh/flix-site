@@ -66,6 +66,7 @@ def init_stock_tables(conn) -> None:
     )
     _ensure_profile_columns(conn)
     _ensure_bundle_columns(conn)
+    _ensure_sheet_columns(conn)
     _migrate_deliveries_payment_unique(conn)
 
 
@@ -135,6 +136,20 @@ def _ensure_profile_columns(conn) -> None:
         conn.execute("ALTER TABLE deliveries ADD COLUMN profile_pin_enc TEXT")
 
 
+def _ensure_sheet_columns(conn) -> None:
+    cred_cols = {row[1] for row in conn.execute("PRAGMA table_info(credentials)").fetchall()}
+    if "external_source" not in cred_cols:
+        conn.execute("ALTER TABLE credentials ADD COLUMN external_source TEXT")
+    if "external_id" not in cred_cols:
+        conn.execute("ALTER TABLE credentials ADD COLUMN external_id TEXT")
+    if "sheet_meta" not in cred_cols:
+        conn.execute("ALTER TABLE credentials ADD COLUMN sheet_meta TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_credentials_external "
+        "ON credentials(external_source, external_id) WHERE external_id IS NOT NULL"
+    )
+
+
 def product_needs_profile_pin(product_name: str | None, product_id: int | None = None) -> bool:
     if product_id is not None and is_bundle_product(int(product_id)):
         return False
@@ -142,6 +157,23 @@ def product_needs_profile_pin(product_name: str | None, product_id: int | None =
     if "+" in name:
         return False
     return "hbo" in name
+
+
+def product_is_iptv(product_name: str | None, product_id: int | None = None) -> bool:
+    if product_id is not None and is_bundle_product(int(product_id)):
+        return False
+    return "iptv" in (product_name or "").lower()
+
+
+def _credential_is_iptv(row: dict) -> bool:
+    meta = _parse_sheet_meta(row.get("sheet_meta"))
+    if meta and meta.get("service") == "iptv":
+        return True
+    note = (row.get("note") or "").lower()
+    if note.startswith("iptv:") or note.startswith("sheets:iptv:"):
+        return True
+    login = (row.get("login") or "").strip()
+    return login.startswith("http://") or login.startswith("https://")
 
 
 def _product_id_value(product: dict) -> int | None:
@@ -443,6 +475,7 @@ def credential_public(row: dict) -> dict:
         "active": bool(row.get("active")),
         "createdAt": row.get("created_at"),
         "profileSlots": profile_slots,
+        "fromSheets": row.get("external_source") == "sheets",
     }
 
 
@@ -564,7 +597,7 @@ def get_deliveries_by_payment(payment_id: str, site_user_id: str | None = None) 
         if site_user_id:
             rows = conn.execute(
                 """
-                SELECT d.*, c.login, c.secret_enc, c.totp_enc
+                SELECT d.*, c.login, c.secret_enc, c.totp_enc, c.sheet_meta
                 FROM deliveries d
                 JOIN credentials c ON c.id = d.credential_id
                 WHERE d.payment_id = ? AND d.site_user_id = ?
@@ -575,7 +608,7 @@ def get_deliveries_by_payment(payment_id: str, site_user_id: str | None = None) 
         else:
             rows = conn.execute(
                 """
-                SELECT d.*, c.login, c.secret_enc, c.totp_enc
+                SELECT d.*, c.login, c.secret_enc, c.totp_enc, c.sheet_meta
                 FROM deliveries d
                 JOIN credentials c ON c.id = d.credential_id
                 WHERE d.payment_id = ?
@@ -788,9 +821,12 @@ def append_orphan_deliveries(site_user_id: str, subs: dict) -> dict:
             "autoIssue": is_auto_issue(int(pid)),
             "startsAt": row.get("created_at"),
             "expiresAt": access.get("expiresAt"),
-            "login": access["login"],
-            "password": access["password"],
-            "hasTotp": access["hasTotp"],
+            "login": access.get("login"),
+            "password": access.get("password"),
+            "hasTotp": access.get("hasTotp"),
+            "isIptv": access.get("isIptv"),
+            "playlistUrl": access.get("playlistUrl"),
+            "deliveryInstructions": access.get("deliveryInstructions"),
             "deliveryId": access["id"],
             "profileName": access.get("profileName"),
             "pin": access.get("pin"),
@@ -807,7 +843,7 @@ def list_deliveries_for_user(site_user_id: str) -> list[dict]:
     with db() as conn:
         rows = conn.execute(
             """
-            SELECT d.*, c.login, c.secret_enc, c.totp_enc
+            SELECT d.*, c.login, c.secret_enc, c.totp_enc, c.sheet_meta
             FROM deliveries d
             JOIN credentials c ON c.id = d.credential_id
             WHERE d.site_user_id = ?
@@ -855,18 +891,47 @@ def _sub_active(sub: dict) -> bool:
 
 
 def _delivery_access(row: dict) -> dict:
+    from .iptv_content import IPTV_DELIVERY_INSTRUCTIONS
+
     pin = None
     if row.get("profile_pin_enc"):
         try:
             pin = decrypt(row["profile_pin_enc"])
         except Exception:
             pin = None
+    two_fa_url = None
+    sheet_meta = _parse_sheet_meta(row.get("sheet_meta"))
+    if sheet_meta and sheet_meta.get("two_fa_url"):
+        two_fa_url = sheet_meta["two_fa_url"]
+    is_iptv = _credential_is_iptv(row)
+    playlist_url = (sheet_meta or {}).get("playlist_url") or row.get("login")
+    if is_iptv:
+        return {
+            "id": row["id"],
+            "productId": str(row["product_id"]),
+            "isIptv": True,
+            "playlistUrl": playlist_url,
+            "deliveryInstructions": IPTV_DELIVERY_INSTRUCTIONS,
+            "login": None,
+            "password": None,
+            "hasTotp": False,
+            "twoFaUrl": None,
+            "profileName": row.get("profile_name"),
+            "pin": None,
+            "botSubId": row.get("bot_sub_id"),
+            "botSubKind": row.get("bot_sub_kind"),
+            "paymentId": row.get("payment_id"),
+            "expiresAt": row.get("expires_at"),
+            "bundleProductId": str(row["bundle_product_id"]) if row.get("bundle_product_id") else None,
+            "partLabel": row.get("part_label"),
+        }
     return {
         "id": row["id"],
         "productId": str(row["product_id"]),
         "login": row["login"],
         "password": decrypt(row["secret_enc"]),
-        "hasTotp": bool(row.get("totp_enc")),
+        "hasTotp": bool(row.get("totp_enc")) or bool(two_fa_url),
+        "twoFaUrl": two_fa_url,
         "profileName": row.get("profile_name"),
         "pin": pin,
         "botSubId": row.get("bot_sub_id"),
@@ -886,7 +951,7 @@ def delivery_for_sub(site_user_id: str, sub_id: str, sub: dict | None = None) ->
         with db() as conn:
             row = conn.execute(
                 """
-                SELECT d.*, c.login, c.secret_enc, c.totp_enc
+                SELECT d.*, c.login, c.secret_enc, c.totp_enc, c.sheet_meta
                 FROM deliveries d
                 JOIN credentials c ON c.id = d.credential_id
                 WHERE d.id = ? AND d.site_user_id = ?
@@ -907,7 +972,7 @@ def delivery_for_sub(site_user_id: str, sub_id: str, sub: dict | None = None) ->
     with db() as conn:
         row = conn.execute(
             """
-            SELECT d.*, c.login, c.secret_enc, c.totp_enc
+            SELECT d.*, c.login, c.secret_enc, c.totp_enc, c.sheet_meta
             FROM deliveries d
             JOIN credentials c ON c.id = d.credential_id
             WHERE d.site_user_id = ? AND d.bot_sub_id = ? AND d.bot_sub_kind = ?
@@ -922,7 +987,7 @@ def delivery_for_sub(site_user_id: str, sub_id: str, sub: dict | None = None) ->
             return None
         row = conn.execute(
             """
-            SELECT d.*, c.login, c.secret_enc, c.totp_enc
+            SELECT d.*, c.login, c.secret_enc, c.totp_enc, c.sheet_meta
             FROM deliveries d
             JOIN credentials c ON c.id = d.credential_id
             WHERE d.site_user_id = ? AND d.bot_sub_id IS NULL
@@ -1044,6 +1109,10 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
             sub["login"] = access["login"]
             sub["password"] = access["password"]
             sub["hasTotp"] = access["hasTotp"]
+            sub["twoFaUrl"] = access.get("twoFaUrl")
+            sub["isIptv"] = access.get("isIptv")
+            sub["playlistUrl"] = access.get("playlistUrl")
+            sub["deliveryInstructions"] = access.get("deliveryInstructions")
             sub["profileName"] = access.get("profileName") or sub.get("profileName")
             sub["pin"] = access.get("pin")
             sub["deliveryId"] = access["id"]
@@ -1127,7 +1196,10 @@ def _allocate_delivery(
         """
         SELECT * FROM credentials
         WHERE product_id = ? AND active = 1 AND slots_used < slots_total
-        ORDER BY slots_used DESC, created_at ASC
+        ORDER BY
+            CASE WHEN external_source = 'sheets' THEN 1 ELSE 0 END ASC,
+            slots_used DESC,
+            created_at ASC
         LIMIT 1
         """,
         (int(source_product_id),),
@@ -1138,6 +1210,11 @@ def _allocate_delivery(
     delivery_id = new_id()
     slot_index = int(cred["slots_used"] or 0)
     profile_name, profile_pin = _profile_for_slot(cred, slot_index)
+    sheet_meta = _parse_sheet_meta(cred.get("sheet_meta"))
+    if sheet_meta and sheet_meta.get("service") == "netflix" and sheet_meta.get("profile"):
+        profile_name = f"Профіль {sheet_meta['profile']}"
+    elif sheet_meta and sheet_meta.get("service") == "gpt" and sheet_meta.get("two_fa_url"):
+        pass  # 2FA через flix2fa — URL у sheet_meta
     profile_pin_enc = encrypt(profile_pin) if profile_pin else None
     expires = (datetime.utcnow() + timedelta(days=30 * max(1, int(months)))).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn.execute(
@@ -1166,7 +1243,38 @@ def _allocate_delivery(
             part_label,
         ),
     )
+    _mark_sheet_issued(cred, payment_row, expires, int(payment_row.get("months") or 1))
     return delivery_id
+
+
+def _parse_sheet_meta(raw: str | None) -> dict | None:
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else None
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
+def _mark_sheet_issued(cred: dict, payment_row: dict, expires_at: str, months: int) -> None:
+    if cred.get("external_source") != "sheets":
+        return
+    meta = _parse_sheet_meta(cred.get("sheet_meta"))
+    if not meta:
+        return
+    try:
+        from . import sheets_svc
+
+        sheets_svc.mark_row_issued(meta, payment_row, expires_at, months=months)
+    except Exception as e:
+        log.warning("sheet mark issued failed: %s", e)
+
+
+async def sync_from_sheets(catalog_products: list[dict]) -> dict:
+    from . import sheets_svc
+
+    return sheets_svc.import_stock(catalog_products)
 
 
 def try_deliver_bundle(payment_row: dict, sources: list[int], months: int = 1) -> dict:
