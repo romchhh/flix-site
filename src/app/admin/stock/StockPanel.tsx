@@ -14,19 +14,49 @@ type ProductRow = {
 
 type ProfileSlot = { num: string; pin: string };
 
+type StockStatus = "available" | "sold" | "disabled";
+
 type CredentialRow = {
   id: string;
   productId: string;
   login: string;
+  displayLogin?: string;
+  isUrl?: boolean;
   hasTotp: boolean;
   slotsTotal: number;
   slotsUsed: number;
   slotsFree: number;
   note: string;
   active: boolean;
+  stockStatus?: StockStatus;
+  soldAt?: string | null;
+  lastPaymentId?: string | null;
   fromSheets?: boolean;
+  sheetRow?: number | null;
+  sheetName?: string | null;
+  sheetService?: string | null;
   profileSlots?: Array<{ num: string }>;
 };
+
+const PAGE_SIZE = 50;
+
+function statusLabel(status?: StockStatus) {
+  if (status === "sold") return "продано";
+  if (status === "disabled") return "вимкнений";
+  return "вільний";
+}
+
+function statusStyle(status?: StockStatus): { color: string; fontWeight: number } {
+  if (status === "sold") return { color: "var(--red, #dc2626)", fontWeight: 800 };
+  if (status === "disabled") return { color: "var(--muted, #888)", fontWeight: 600 };
+  return { color: "var(--green, #16a34a)", fontWeight: 800 };
+}
+
+function formatDt(value?: string | null) {
+  if (!value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString("uk-UA");
+}
 
 type SheetsSyncStatus = {
   at: string | null;
@@ -79,15 +109,45 @@ export function StockPanel({
   const [slotsTotal, setSlotsTotal] = useState(1);
   const [note, setNote] = useState("");
   const [profileSlots, setProfileSlots] = useState<ProfileSlot[]>(emptyProfileSlots(1));
+  const [statusFilter, setStatusFilter] = useState<"all" | StockStatus>("all");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const selected = products.find((p) => p.id === productId);
   const bundleProduct = Boolean(selected?.isBundle);
   const profileProduct = needsProfilePin(selected);
-  const rows = productId && !bundleProduct
+  const productRows = productId && !bundleProduct
     ? initial.filter((c) => c.productId === productId)
     : bundleProduct
       ? []
       : initial;
+
+  const counts = {
+    all: productRows.length,
+    available: productRows.filter((c) => c.stockStatus === "available").length,
+    sold: productRows.filter((c) => c.stockStatus === "sold").length,
+    disabled: productRows.filter((c) => c.stockStatus === "disabled").length,
+  };
+
+  const filteredRows = productRows.filter((c) => {
+    if (statusFilter !== "all" && c.stockStatus !== statusFilter) return false;
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return (
+      c.login.toLowerCase().includes(q)
+      || (c.note || "").toLowerCase().includes(q)
+      || String(c.sheetRow || "").includes(q)
+      || (c.lastPaymentId || "").toLowerCase().includes(q)
+    );
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const rows = filteredRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [productId, statusFilter, search]);
 
   useEffect(() => {
     setProfileSlots((prev) => {
@@ -343,53 +403,151 @@ export function StockPanel({
       </div>
 
       <div className="panel">
-        <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 14 }}>
-          Акаунти{selected ? `: ${selected.name}` : ""}
-        </h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+          <div>
+            <h2 style={{ fontSize: 17, fontWeight: 800, marginBottom: 6 }}>
+              Акаунти{selected ? `: ${selected.name}` : ""}
+            </h2>
+            {!bundleProduct && (
+              <p className="muted" style={{ margin: 0 }}>
+                Вільних: {counts.available} · Продано: {counts.sold} · Вимкнених: {counts.disabled}
+              </p>
+            )}
+          </div>
+          {!bundleProduct && productRows.length > 0 && (
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Пошук: логін, рядок, оплата…"
+              style={{ minWidth: 220, maxWidth: 320 }}
+            />
+          )}
+        </div>
+
         {bundleProduct ? (
           <p className="muted">
             У набору немає власного складу. Дивись акаунти в окремих товарах:{" "}
             {selected?.bundleSources?.map((source) => source.name).join(", ") || "—"}.
           </p>
-        ) : rows.length === 0 ? (
+        ) : productRows.length === 0 ? (
           <p className="muted">На складі порожньо.</p>
         ) : (
-          <div className="tw">
-            <table>
-              <thead>
-                <tr><th>Логін</th><th>2FA</th><th>Профілі</th><th>Слоти</th><th>Джерело</th><th>Статус</th><th>Примітка</th><th></th></tr>
-              </thead>
-              <tbody>
-                {rows.map((c) => (
-                  <tr key={c.id}>
-                    <td><b>{c.login}</b></td>
-                    <td>{c.hasTotp ? "є" : "—"}</td>
-                    <td className="muted">
-                      {c.profileSlots?.length
-                        ? c.profileSlots.map((slot) => `№${slot.num}`).join(", ")
-                        : "—"}
-                    </td>
-                    <td className="n">{c.slotsUsed}/{c.slotsTotal}</td>
-                    <td className="muted">{c.fromSheets ? "таблиця" : "вручну"}</td>
-                    <td>{c.active ? "активний" : "вимкнений"}</td>
-                    <td className="muted">{c.note || "—"}</td>
-                    <td>
-                      <button
-                        className="btn sm ghost"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => run(async () => {
-                          await api(`/api/admin/stock/credentials/${c.id}`, { method: "DELETE" });
-                        })}
-                      >
-                        Видалити
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+              {([
+                ["all", `Усі (${counts.all})`],
+                ["available", `Вільні (${counts.available})`],
+                ["sold", `Продані (${counts.sold})`],
+                ["disabled", `Вимкнені (${counts.disabled})`],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`btn sm${statusFilter === key ? "" : " ghost"}`}
+                  onClick={() => setStatusFilter(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {filteredRows.length === 0 ? (
+              <p className="muted">За цим фільтром нічого не знайдено.</p>
+            ) : (
+              <div className="tw">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Акаунт</th>
+                      <th>Статус</th>
+                      <th>Слоти</th>
+                      <th>Таблиця</th>
+                      <th>Продано</th>
+                      <th>Оплата</th>
+                      <th>Примітка</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((c) => (
+                      <tr key={c.id} style={c.stockStatus === "sold" ? { opacity: 0.72 } : undefined}>
+                        <td>
+                          {c.isUrl ? (
+                            <a href={c.login} target="_blank" rel="noopener noreferrer" style={{ wordBreak: "break-all" }}>
+                              <b>{c.displayLogin || c.login}</b>
+                            </a>
+                          ) : (
+                            <b>{c.displayLogin || c.login}</b>
+                          )}
+                          {c.hasTotp && <small className="muted" style={{ display: "block", marginTop: 4 }}>2FA</small>}
+                          {c.profileSlots?.length ? (
+                            <small className="muted" style={{ display: "block", marginTop: 4 }}>
+                              профілі: {c.profileSlots.map((slot) => `№${slot.num}`).join(", ")}
+                            </small>
+                          ) : null}
+                        </td>
+                        <td style={statusStyle(c.stockStatus)}>{statusLabel(c.stockStatus)}</td>
+                        <td className="n">{c.slotsUsed}/{c.slotsTotal}</td>
+                        <td className="muted">
+                          {c.fromSheets
+                            ? `${c.sheetName || "таблиця"}${c.sheetRow ? ` · ряд ${c.sheetRow}` : ""}`
+                            : "вручну"}
+                        </td>
+                        <td className="muted">{formatDt(c.soldAt)}</td>
+                        <td className="muted" style={{ maxWidth: 120, wordBreak: "break-all" }}>
+                          {c.lastPaymentId || "—"}
+                        </td>
+                        <td className="muted">{c.note || "—"}</td>
+                        <td>
+                          {c.stockStatus !== "sold" && (
+                            <button
+                              className="btn sm ghost"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => run(async () => {
+                                await api(`/api/admin/stock/credentials/${c.id}`, { method: "DELETE" });
+                              })}
+                            >
+                              Видалити
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {filteredRows.length > PAGE_SIZE && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14, gap: 12, flexWrap: "wrap" }}>
+                <span className="muted">
+                  Показано {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filteredRows.length)} з {filteredRows.length}
+                </span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    ← Назад
+                  </button>
+                  <span className="muted" style={{ alignSelf: "center" }}>
+                    {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Далі →
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </>

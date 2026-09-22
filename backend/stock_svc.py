@@ -456,6 +456,16 @@ def list_product_settings(product_ids: list[int]) -> dict[int, bool]:
     return {int(r["product_id"]): bool(r["auto_issue"]) for r in rows}
 
 
+def _credential_stock_status(row: dict) -> str:
+    if not row.get("active"):
+        return "disabled"
+    slots_total = int(row.get("slots_total") or 0)
+    slots_used = int(row.get("slots_used") or 0)
+    if slots_total > 0 and slots_used >= slots_total:
+        return "sold"
+    return "available"
+
+
 def credential_public(row: dict) -> dict:
     free = max(0, int(row.get("slots_total") or 0) - int(row.get("slots_used") or 0))
     profile_slots = [
@@ -463,36 +473,78 @@ def credential_public(row: dict) -> dict:
         for s in _decode_profile_slots(row.get("profile_slots_enc"))
         if str(s.get("num") or "").strip()
     ]
+    sheet_meta = _parse_sheet_meta(row.get("sheet_meta"))
+    login = row.get("login") or ""
+    is_url = login.startswith("http://") or login.startswith("https://")
     return {
         "id": row["id"],
         "productId": str(row["product_id"]),
-        "login": row["login"],
+        "login": login,
+        "displayLogin": login if not is_url or len(login) <= 48 else f"{login[:45]}…",
+        "isUrl": is_url,
         "hasTotp": bool(row.get("totp_enc")),
         "slotsTotal": int(row.get("slots_total") or 0),
         "slotsUsed": int(row.get("slots_used") or 0),
         "slotsFree": free,
         "note": row.get("note") or "",
         "active": bool(row.get("active")),
+        "stockStatus": _credential_stock_status(row),
         "createdAt": row.get("created_at"),
+        "soldAt": row.get("last_delivered_at"),
+        "lastPaymentId": row.get("last_payment_id"),
         "profileSlots": profile_slots,
         "fromSheets": row.get("external_source") == "sheets",
+        "sheetRow": sheet_meta.get("row") if sheet_meta else None,
+        "sheetName": sheet_meta.get("sheet") if sheet_meta else None,
+        "sheetService": sheet_meta.get("service") if sheet_meta else None,
     }
 
 
 def list_credentials(product_id: int | None = None) -> list[dict]:
+    base_sql = """
+        SELECT c.*,
+            (
+                SELECT d.created_at FROM deliveries d
+                WHERE d.credential_id = c.id
+                ORDER BY d.created_at DESC
+                LIMIT 1
+            ) AS last_delivered_at,
+            (
+                SELECT d.payment_id FROM deliveries d
+                WHERE d.credential_id = c.id
+                ORDER BY d.created_at DESC
+                LIMIT 1
+            ) AS last_payment_id
+        FROM credentials c
+    """
     with db() as conn:
         if product_id is not None:
             rows = conn.execute(
-                """
-                SELECT * FROM credentials
-                WHERE product_id = ?
-                ORDER BY active DESC, slots_used DESC, created_at ASC
+                f"""
+                {base_sql}
+                WHERE c.product_id = ?
+                ORDER BY
+                    CASE
+                        WHEN c.active = 1 AND c.slots_used < c.slots_total THEN 0
+                        WHEN c.active = 1 AND c.slots_used >= c.slots_total THEN 1
+                        ELSE 2
+                    END,
+                    c.created_at DESC
                 """,
                 (int(product_id),),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM credentials ORDER BY product_id, active DESC, created_at ASC"
+                f"""
+                {base_sql}
+                ORDER BY c.product_id,
+                    CASE
+                        WHEN c.active = 1 AND c.slots_used < c.slots_total THEN 0
+                        WHEN c.active = 1 AND c.slots_used >= c.slots_total THEN 1
+                        ELSE 2
+                    END,
+                    c.created_at DESC
+                """
             ).fetchall()
     return [credential_public(dict(r)) for r in rows]
 
