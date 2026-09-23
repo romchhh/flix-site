@@ -909,12 +909,14 @@ def totp_code_for_delivery(site_user_id: str, delivery_id: str, ip: str = "") ->
 def append_orphan_deliveries(site_user_id: str, subs: dict) -> dict:
     """Додає в кабінет видачі без привʼязки до підписки бота (гостьові покупки)."""
     deliveries = list_deliveries_for_user(site_user_id)
-    linked_ids = {
-        str(sub.get("deliveryId"))
-        for bucket in (subs.get("oneTime") or [], subs.get("recurring") or [])
-        for sub in bucket
-        if sub.get("deliveryId")
-    }
+    linked_ids: set[str] = set()
+    for bucket in (subs.get("oneTime") or [], subs.get("recurring") or []):
+        for sub in bucket:
+            if sub.get("deliveryId"):
+                linked_ids.add(str(sub["deliveryId"]))
+            for part in sub.get("accessParts") or []:
+                if part.get("deliveryId"):
+                    linked_ids.add(str(part["deliveryId"]))
 
     extras = []
     seen_bundle_payments: set[str] = set()
@@ -990,6 +992,7 @@ def append_orphan_deliveries(site_user_id: str, subs: dict) -> dict:
             "login": access.get("login"),
             "password": access.get("password"),
             "hasTotp": access.get("hasTotp"),
+            "twoFaUrl": access.get("twoFaUrl"),
             "isIptv": access.get("isIptv"),
             "playlistUrl": access.get("playlistUrl"),
             "deliveryInstructions": access.get("deliveryInstructions"),
@@ -1218,104 +1221,135 @@ def totp_code_for_sub(site_user_id: str, sub_id: str, ip: str = "", sub: dict | 
     )
 
 
-def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
-    deliveries = list_deliveries_for_user(site_user_id)
-    by_bot: dict[tuple[str, int], dict] = {}
-    unlinked: dict[str, list[dict]] = {}
-    used_delivery_ids: set[str] = set()
-    for row in deliveries:
-        kind = row.get("bot_sub_kind")
-        bot_id = row.get("bot_sub_id")
-        if kind and bot_id:
-            by_bot[(str(kind), int(bot_id))] = row
-        else:
-            unlinked.setdefault(str(row["product_id"]), []).append(row)
+def _product_ids_for_match(product_id: str) -> set[str]:
+    ids = {str(product_id)}
+    if product_id.isdigit():
+        pid = int(product_id)
+        ids.add(str(stock_source_product_id(pid)))
+        if shares_netflix_stock(pid) and _NETFLIX_STOCK_ID:
+            ids.add(str(_NETFLIX_STOCK_ID))
+    return ids
 
-    def _take_unlinked(pool: list[dict]) -> dict | None:
-        while pool:
-            candidate = pool.pop(0)
-            cid = str(candidate.get("id") or "")
-            if cid and cid not in used_delivery_ids:
-                return candidate
+
+def _delivery_matches_product(row: dict, product_id: str) -> bool:
+    if not product_id:
+        return False
+    ids = _product_ids_for_match(product_id)
+    if str(row.get("product_id")) in ids:
+        return True
+    if product_id.isdigit() and is_bundle_product(int(product_id)):
+        return str(row.get("bundle_product_id") or "") == str(product_id)
+    return False
+
+
+def _find_delivery_for_sub(sub: dict, deliveries: list[dict], used_ids: set[str]) -> dict | None:
+    pid = str(sub.get("productId") or "")
+    if not pid:
+        return None
+    kind = sub.get("kind") or "one_time"
+    bot_id = sub.get("botId")
+
+    pool = [
+        d for d in deliveries
+        if str(d.get("id") or "") not in used_ids
+        and _delivery_active(d)
+        and _delivery_matches_product(d, pid)
+    ]
+    if not pool:
         return None
 
+    if bot_id:
+        for d in pool:
+            if d.get("bot_sub_id") == int(bot_id) and str(d.get("bot_sub_kind") or "one_time") == kind:
+                return d
+
+    unlinked = [d for d in pool if not d.get("bot_sub_id")]
+    if unlinked:
+        unlinked.sort(key=lambda d: d.get("created_at") or "", reverse=True)
+        return unlinked[0]
+
+    pool.sort(key=lambda d: d.get("created_at") or "", reverse=True)
+    return pool[0]
+
+
+def _apply_delivery_to_sub(sub: dict, row: dict, deliveries: list[dict]) -> None:
+    payment_id = row.get("payment_id")
+    bundle_id = row.get("bundle_product_id")
+    sibling_rows = []
+    if payment_id and bundle_id:
+        sibling_rows = [
+            r for r in deliveries
+            if r.get("payment_id") == payment_id
+            and str(r.get("bundle_product_id") or "") == str(bundle_id)
+        ]
+    parts = _access_parts_from_rows(sibling_rows or [row])
+    if len(parts) > 1 or (parts and parts[0].get("bundleProductId")):
+        sub["accessParts"] = [
+            {
+                "label": part.get("partLabel") or part.get("label"),
+                "login": part.get("login"),
+                "password": part.get("password"),
+                "profileName": part.get("profileName"),
+                "pin": part.get("pin"),
+                "hasTotp": part.get("hasTotp"),
+                "deliveryId": part.get("id"),
+            }
+            for part in parts
+        ]
+        sub["login"] = parts[0].get("login")
+        sub["password"] = parts[0].get("password")
+        sub["hasTotp"] = any(p.get("hasTotp") for p in parts)
+        sub["profileName"] = parts[0].get("profileName")
+        sub["pin"] = parts[0].get("pin")
+        sub["deliveryId"] = parts[0].get("id")
+    else:
+        access = parts[0]
+        sub["login"] = access["login"]
+        sub["password"] = access["password"]
+        sub["hasTotp"] = access["hasTotp"]
+        sub["twoFaUrl"] = access.get("twoFaUrl")
+        sub["isIptv"] = access.get("isIptv")
+        sub["playlistUrl"] = access.get("playlistUrl")
+        sub["deliveryInstructions"] = access.get("deliveryInstructions")
+        sub["profileName"] = access.get("profileName") or sub.get("profileName")
+        sub["pin"] = access.get("pin")
+        sub["deliveryId"] = access["id"]
+
+
+def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
+    deliveries = list_deliveries_for_user(site_user_id)
+    used_delivery_ids: set[str] = set()
+
     def attach(sub: dict) -> None:
-        kind = sub.get("kind") or "one_time"
-        bot_id = sub.get("botId")
-        row = None
-        if bot_id:
-            candidate = by_bot.get((kind, int(bot_id)))
-            cid = str(candidate.get("id") or "") if candidate else ""
-            if candidate and cid not in used_delivery_ids:
-                row = candidate
-        if not row:
-            pid = str(sub.get("productId") or "")
-            pool = list(unlinked.get(pid) or [])
-            row = _take_unlinked(pool)
-            unlinked[pid] = pool
-            if not row and pid.isdigit():
-                source_pid = str(stock_source_product_id(int(pid)))
-                if source_pid != pid:
-                    pool = list(unlinked.get(source_pid) or [])
-                    row = _take_unlinked(pool)
-                    unlinked[source_pid] = pool
-            elif pid and is_bundle_product(int(pid)):
-                bundle_rows = [
-                    r for r in deliveries
-                    if str(r.get("bundle_product_id") or "") == pid and _delivery_active(r)
-                ]
-                if bundle_rows:
-                    row = bundle_rows[0]
-        if not row or not _sub_active(sub) or not _delivery_active(row):
+        if not _sub_active(sub):
             sub.pop("login", None)
             sub.pop("password", None)
             sub.pop("hasTotp", None)
             sub.pop("deliveryId", None)
             sub.pop("accessParts", None)
             return
+
+        row = _find_delivery_for_sub(sub, deliveries, used_delivery_ids)
+        if not row or not _delivery_active(row):
+            sub.pop("login", None)
+            sub.pop("password", None)
+            sub.pop("hasTotp", None)
+            sub.pop("deliveryId", None)
+            sub.pop("accessParts", None)
+            return
+
         used_delivery_ids.add(str(row["id"]))
         payment_id = row.get("payment_id")
         bundle_id = row.get("bundle_product_id")
-        sibling_rows = []
         if payment_id and bundle_id:
-            sibling_rows = [
-                r for r in deliveries
-                if r.get("payment_id") == payment_id and str(r.get("bundle_product_id") or "") == str(bundle_id)
-            ]
-        parts = _access_parts_from_rows(sibling_rows or [row])
-        if len(parts) > 1 or (parts and parts[0].get("bundleProductId")):
-            sub["accessParts"] = [
-                {
-                    "label": part.get("partLabel") or part.get("label"),
-                    "login": part.get("login"),
-                    "password": part.get("password"),
-                    "profileName": part.get("profileName"),
-                    "pin": part.get("pin"),
-                    "hasTotp": part.get("hasTotp"),
-                    "deliveryId": part.get("id"),
-                }
-                for part in parts
-            ]
-            sub["login"] = parts[0].get("login")
-            sub["password"] = parts[0].get("password")
-            sub["hasTotp"] = any(p.get("hasTotp") for p in parts)
-            sub["profileName"] = parts[0].get("profileName")
-            sub["pin"] = parts[0].get("pin")
-            sub["deliveryId"] = parts[0].get("id")
-            for part in sibling_rows:
-                used_delivery_ids.add(str(part["id"]))
-        else:
-            access = parts[0]
-            sub["login"] = access["login"]
-            sub["password"] = access["password"]
-            sub["hasTotp"] = access["hasTotp"]
-            sub["twoFaUrl"] = access.get("twoFaUrl")
-            sub["isIptv"] = access.get("isIptv")
-            sub["playlistUrl"] = access.get("playlistUrl")
-            sub["deliveryInstructions"] = access.get("deliveryInstructions")
-            sub["profileName"] = access.get("profileName") or sub.get("profileName")
-            sub["pin"] = access.get("pin")
-            sub["deliveryId"] = access["id"]
+            for sibling in deliveries:
+                if (
+                    sibling.get("payment_id") == payment_id
+                    and str(sibling.get("bundle_product_id") or "") == str(bundle_id)
+                ):
+                    used_delivery_ids.add(str(sibling["id"]))
+        _apply_delivery_to_sub(sub, row, deliveries)
+
         pid = sub.get("productId")
         if pid:
             try:
@@ -1335,8 +1369,11 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
             except (TypeError, ValueError):
                 sub["autoIssue"] = False
 
+    def _sub_sort_key(sub: dict) -> str:
+        return str(sub.get("startsAt") or sub.get("expiresAt") or "")
+
     for bucket in (subs.get("oneTime") or [], subs.get("recurring") or []):
-        for sub in bucket:
+        for sub in sorted(bucket, key=_sub_sort_key, reverse=True):
             attach(sub)
     return subs
 
@@ -1357,9 +1394,17 @@ async def link_delivery_to_bot_sub(payment_row: dict) -> None:
         log.warning("link delivery: %s", e)
         return
     def _link_kind(subs: list[dict], kind: str) -> bool:
-        for sub in subs:
-            if str(sub.get("productId")) != str(product_id) or not sub.get("botId"):
-                continue
+        paid_pid = str(product_id)
+        paid_ids = _product_ids_for_match(paid_pid)
+        matches = [
+            sub for sub in subs
+            if str(sub.get("productId") or "") in paid_ids and sub.get("botId")
+        ]
+        matches.sort(
+            key=lambda s: (str(s.get("startsAt") or ""), int(s.get("botId") or 0)),
+            reverse=True,
+        )
+        for sub in matches:
             bot_sub_id = int(sub["botId"])
             with db() as conn:
                 taken = conn.execute(

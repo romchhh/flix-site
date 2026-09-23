@@ -101,11 +101,27 @@ def _is_blueish(r: float, g: float, b: float) -> bool:
     return b > 0.75 and g > 0.5 and r < 0.6
 
 
+def _netflix_expiry_cell_color(row_data: dict | None) -> tuple[float, float, float] | None:
+    """Колір лише комірки терміну (col D), не всього рядка."""
+    if not row_data:
+        return None
+    cells = row_data.get("values", [])
+    if len(cells) <= 3:
+        return None
+    bg = (cells[3].get("effectiveFormat") or {}).get("backgroundColor") or {}
+    r = bg.get("red", 1.0)
+    g = bg.get("green", 1.0)
+    b = bg.get("blue", 1.0)
+    if r > 0.99 and g > 0.99 and b > 0.99:
+        return None
+    return (r, g, b)
+
+
 def _netflix_row_is_used(row: list, row_data: dict | None) -> bool:
-    """Виданий: є термін у col D або рядок забарвлений (бірюзовий/синій)."""
+    """Виданий: є термін у col D або комірка D забарвлена (бірюзовий/синій)."""
     if _cell(row, 3):
         return True
-    color = _row_bg_color(row_data)
+    color = _netflix_expiry_cell_color(row_data)
     if not color:
         return False
     r, g, b = color
@@ -134,7 +150,8 @@ def _row_bg_color(row_data: dict | None) -> tuple[float, float, float] | None:
 
 
 def _format_expiry(dt: datetime) -> str:
-    return dt.strftime("%d.%m.%y")
+    """Як у Telegram-боті: DD.MM.YYYY."""
+    return dt.strftime("%d.%m.%Y")
 
 
 def _parse_expiry(value: str) -> datetime | None:
@@ -251,7 +268,7 @@ def _read_sheet(service, sheet_name: str, with_colors: bool = False) -> tuple[li
     if with_colors:
         result = service.spreadsheets().get(
             spreadsheetId=GOOGLE_SHEETS_ID,
-            ranges=[f"'{sheet_name}'!A1:H500"],
+            ranges=[f"'{sheet_name}'!A1:H2000"],
             includeGridData=True,
         ).execute()
         grid_rows = result["sheets"][0].get("data", [{}])[0].get("rowData", [])
@@ -265,7 +282,7 @@ def _read_sheet(service, sheet_name: str, with_colors: bool = False) -> tuple[li
 
     result = service.spreadsheets().values().get(
         spreadsheetId=GOOGLE_SHEETS_ID,
-        range=f"'{sheet_name}'!A1:H500",
+        range=f"'{sheet_name}'!A1:H2000",
         valueRenderOption="FORMATTED_VALUE",
     ).execute()
     values = result.get("values", [])
@@ -503,11 +520,16 @@ def import_stock(catalog_products: list[dict]) -> dict:
 
         if prev and int(prev.get("slots_used") or 0) > 0:
             with db() as conn:
-                has_delivery = conn.execute(
-                    "SELECT 1 FROM deliveries WHERE credential_id = ? LIMIT 1",
-                    (prev["id"],),
+                active_delivery = conn.execute(
+                    """
+                    SELECT 1 FROM deliveries
+                    WHERE credential_id = ?
+                      AND (expires_at IS NULL OR expires_at > ?)
+                    LIMIT 1
+                    """,
+                    (prev["id"], now()),
                 ).fetchone()
-            if has_delivery:
+            if active_delivery:
                 continue
             with db() as conn:
                 conn.execute(
@@ -531,7 +553,23 @@ def import_stock(catalog_products: list[dict]) -> dict:
     with db() as conn:
         for ext_id, row in existing_by_ext.items():
             if ext_id in seen_ext:
-                if not int(row.get("active") or 0) and int(row.get("slots_used") or 0) == 0:
+                slots_used = int(row.get("slots_used") or 0)
+                active_delivery = conn.execute(
+                    """
+                    SELECT 1 FROM deliveries
+                    WHERE credential_id = ?
+                      AND (expires_at IS NULL OR expires_at > ?)
+                    LIMIT 1
+                    """,
+                    (row["id"], now()),
+                ).fetchone()
+                if not active_delivery and slots_used > 0:
+                    conn.execute(
+                        "UPDATE credentials SET slots_used = 0, active = 1 WHERE id = ?",
+                        (row["id"],),
+                    )
+                    reactivated += 1
+                elif not int(row.get("active") or 0) and slots_used == 0:
                     conn.execute(
                         "UPDATE credentials SET active = 1 WHERE id = ?",
                         (row["id"],),
