@@ -502,7 +502,21 @@ def import_stock(catalog_products: list[dict]) -> dict:
         prev = existing_by_ext.get(ext_id)
 
         if prev and int(prev.get("slots_used") or 0) > 0:
-            continue
+            with db() as conn:
+                has_delivery = conn.execute(
+                    "SELECT 1 FROM deliveries WHERE credential_id = ? LIMIT 1",
+                    (prev["id"],),
+                ).fetchone()
+            if has_delivery:
+                continue
+            with db() as conn:
+                conn.execute(
+                    "UPDATE credentials SET slots_used = 0, active = 1 WHERE id = ?",
+                    (prev["id"],),
+                )
+            prev = dict(prev)
+            prev["slots_used"] = 0
+            prev["active"] = 1
 
         try:
             _upsert_credential(item, product_id, prev)
@@ -512,10 +526,17 @@ def import_stock(catalog_products: list[dict]) -> dict:
             log.warning("upsert %s: %s", ext_id, e)
             result["errors"].append(f"{ext_id}: {e}")
 
+    reactivated = 0
     deactivated = 0
     with db() as conn:
         for ext_id, row in existing_by_ext.items():
             if ext_id in seen_ext:
+                if not int(row.get("active") or 0) and int(row.get("slots_used") or 0) == 0:
+                    conn.execute(
+                        "UPDATE credentials SET active = 1 WHERE id = ?",
+                        (row["id"],),
+                    )
+                    reactivated += 1
                 continue
             if int(row.get("slots_used") or 0) > 0:
                 continue

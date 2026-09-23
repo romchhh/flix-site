@@ -995,7 +995,6 @@ async def order_status(ref: str, request: Request):
     auto_issue = bool(product and product.get("autoIssue")) if product else stock_svc.is_auto_issue(int(row["product_id"]))
     delivery = None
     if status in ("success", "paid"):
-        await stock_svc.process_paid_payment(row)
         drow = stock_svc.get_delivery_access_for_payment(uid, str(row.get("invoice_id") or ""))
         if drow:
             delivery = drow

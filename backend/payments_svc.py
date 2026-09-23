@@ -195,12 +195,18 @@ async def notify_bot_fulfillment(row: dict) -> None:
         log.warning("bot fulfill %s: %s", row.get("invoice_id"), e)
 
 
-async def sync_payment_to_bot(row: dict) -> bool:
+async def fulfill_paid_payment(row: dict) -> None:
+    """Одна видача зі складу + повідомлення боту (безпечно викликати кілька разів)."""
+    if (row.get("status") or "").lower() not in _PAID:
+        return
+    await stock_svc.process_paid_payment(row)
+    await notify_bot_fulfillment(row)
+
+
+async def sync_payment_to_bot(row: dict, *, fulfill: bool = True) -> bool:
     """Записати платіж у бота; склад спочатку, потім форвард вебхука боту."""
-    # Автовидача зі складу сайту — до повідомлень бота
-    if (row.get("status") or "").lower() in _PAID:
-        await stock_svc.process_paid_payment(row)
-        await notify_bot_fulfillment(row)
+    if fulfill and (row.get("status") or "").lower() in _PAID:
+        await fulfill_paid_payment(row)
 
     try:
         await bot_client.record_payment(
@@ -262,14 +268,11 @@ async def handle_mono_webhook(payload: dict) -> None:
         row = get_site_payment(invoice_id)
         if row:
             fresh = get_site_payment(invoice_id) or row
-            # Склад одразу після оплати, навіть якщо синк з ботом уже був
-            if status in _PAID:
-                await stock_svc.process_paid_payment(fresh)
-                await notify_bot_fulfillment(fresh)
             if not fresh.get("synced_to_bot"):
                 await sync_payment_to_bot(get_site_payment(invoice_id) or fresh)
                 return
             if status in _PAID:
+                await fulfill_paid_payment(fresh)
                 delivery = stock_svc.delivery_admin_payload(fresh)
                 await forward_mono_to_bot(_webhook_for_row(fresh, delivery))
                 return
@@ -314,8 +317,10 @@ async def refresh_payment_from_mono(ref: str) -> dict | None:
     invoice_id = str(row.get("invoice_id") or "")
     status = (row.get("status") or "").lower()
     if status in _PAID:
-        await stock_svc.process_paid_payment(row)
-        await notify_bot_fulfillment(row)
+        if not row.get("synced_to_bot"):
+            await sync_payment_to_bot(row)
+        else:
+            await fulfill_paid_payment(row)
         return get_site_payment(invoice_id or ref)
     if not invoice_id:
         return row
@@ -334,11 +339,10 @@ async def refresh_payment_from_mono(ref: str) -> dict | None:
     if not fresh:
         return row
     if mono_status in _PAID:
-        await stock_svc.process_paid_payment(fresh)
-        await notify_bot_fulfillment(fresh)
         if not fresh.get("synced_to_bot"):
             await sync_payment_to_bot(fresh)
         else:
+            await fulfill_paid_payment(fresh)
             delivery = stock_svc.delivery_admin_payload(fresh)
             await forward_mono_to_bot(_webhook_for_row(fresh, delivery))
     return get_site_payment(invoice_id or ref)
@@ -376,7 +380,7 @@ async def refresh_user_payments(site_user_id: str) -> None:
             continue
         full = get_site_payment(invoice_id)
         if full:
-            await stock_svc.process_paid_payment(full)
+            await fulfill_paid_payment(full)
 
 
 async def refresh_pending_from_mono(limit: int = 20) -> int:

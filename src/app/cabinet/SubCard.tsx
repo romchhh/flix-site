@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -54,6 +54,10 @@ type Sub = {
   }>;
 };
 
+function partIsHbo(label?: string | null) {
+  return /hbo/i.test(label || "");
+}
+
 function SubThumb({ name, icon, color, photoUrl, productId }: {
   name: string; icon: string; color: string;
   photoUrl?: string | null; productId?: string;
@@ -103,10 +107,13 @@ export function SubCard({ sub }: { sub: Sub }) {
   const charges = sub.charges ?? [];
   const billingOn = Boolean(sub.recurring && sub.billingActive !== false);
 
-  const accessParts = sub.accessParts?.filter((part) => part.login || part.password || part.profileName || part.pin) ?? [];
+  const accessParts = sub.accessParts?.filter((part) => (
+    part.login || part.password || part.profileName || part.pin
+  )) ?? [];
+  const showProfile = partIsHbo(sub.name) || Boolean(sub.pin);
   const subtitle = accessParts.length > 1
     ? `${accessParts.length} сервіси в наборі`
-    : sub.profileName
+    : (showProfile && sub.profileName)
     || (sub.login || sub.password ? "Доступ у кабінеті" : null)
     || (sub.recurring ? (billingOn ? "Автосписання" : "Без автосписання") : null)
     || "Підписка";
@@ -115,7 +122,7 @@ export function SubCard({ sub }: { sub: Sub }) {
     ? `${left} ${plural(left, "день", "дні", "днів")}`
     : "сьогодні";
 
-  async function fetchCode() {
+  const fetchCode = useCallback(async () => {
     setCodeBusy(true);
     setError(null);
     try {
@@ -132,7 +139,13 @@ export function SubCard({ sub }: { sub: Sub }) {
     } finally {
       setCodeBusy(false);
     }
-  }
+  }, [sub.id]);
+
+  useEffect(() => {
+    if (!open || !sub.hasTotp || sub.twoFaUrl || codeBusy || error) return;
+    if (code && codeLeft > 0) return;
+    fetchCode();
+  }, [open, sub.hasTotp, sub.twoFaUrl, code, codeLeft, codeBusy, error, fetchCode]);
 
   async function cancel() {
     setBusy(true);
@@ -223,22 +236,32 @@ export function SubCard({ sub }: { sub: Sub }) {
 
             {accessParts.length > 0 ? (
               accessParts.map((part, index) => (
-                <div className="creds" key={`${part.deliveryId || part.label || index}`} style={{ marginTop: index ? 10 : 0 }}>
-                  {part.label && <div className="row"><span>Сервіс</span><b>{part.label}</b></div>}
-                  {part.profileName && <div className="row"><span>Профіль</span><b>{part.profileName}</b></div>}
-                  {part.pin && <div className="row"><span>PIN</span><b>{part.pin}</b></div>}
+                <div className="creds" key={`${part.deliveryId || part.label || index}`} style={{ marginTop: index ? 14 : 0 }}>
+                  {part.label && (
+                    <div style={{ fontWeight: 800, marginBottom: 8, fontSize: 15 }}>{part.label}</div>
+                  )}
                   {part.login && <div className="row"><span>Логін</span><b>{part.login}</b></div>}
                   {part.password && <div className="row"><span>Пароль</span><b>{part.password}</b></div>}
+                  {partIsHbo(part.label) && part.profileName && (
+                    <div className="row"><span>Профіль</span><b>{part.profileName}</b></div>
+                  )}
+                  {partIsHbo(part.label) && part.pin && (
+                    <div className="row"><span>PIN</span><b>{part.pin}</b></div>
+                  )}
                 </div>
               ))
             ) : sub.isIptv && sub.playlistUrl ? (
               <IptvAccess playlistUrl={sub.playlistUrl} instructions={sub.deliveryInstructions} />
-            ) : (sub.login || sub.password || sub.profileName || sub.pin) ? (
+            ) : (sub.login || sub.password || (showProfile && sub.profileName) || (showProfile && sub.pin)) ? (
               <div className="creds">
-                {sub.profileName && <div className="row"><span>Профіль</span><b>{sub.profileName}</b></div>}
-                {sub.pin && <div className="row"><span>PIN</span><b>{sub.pin}</b></div>}
                 {sub.login && <div className="row"><span>Логін</span><b>{sub.login}</b></div>}
                 {sub.password && <div className="row"><span>Пароль</span><b>{sub.password}</b></div>}
+                {showProfile && sub.profileName && (
+                  <div className="row"><span>Профіль</span><b>{sub.profileName}</b></div>
+                )}
+                {showProfile && sub.pin && (
+                  <div className="row"><span>PIN</span><b>{sub.pin}</b></div>
+                )}
               </div>
             ) : null}
 

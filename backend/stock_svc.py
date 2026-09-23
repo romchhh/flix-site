@@ -69,6 +69,7 @@ def init_stock_tables(conn) -> None:
     _ensure_bundle_columns(conn)
     _ensure_sheet_columns(conn)
     _migrate_deliveries_payment_unique(conn)
+    _ensure_single_delivery_per_payment(conn)
 
 
 def _ensure_bundle_columns(conn) -> None:
@@ -135,6 +136,18 @@ def _ensure_profile_columns(conn) -> None:
     del_cols = {row[1] for row in conn.execute("PRAGMA table_info(deliveries)").fetchall()}
     if "profile_pin_enc" not in del_cols:
         conn.execute("ALTER TABLE deliveries ADD COLUMN profile_pin_enc TEXT")
+
+
+def _ensure_single_delivery_per_payment(conn) -> None:
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_deliveries_payment_single
+        ON deliveries(payment_id)
+        WHERE bundle_product_id IS NULL
+          AND payment_id IS NOT NULL
+          AND payment_id != ''
+        """
+    )
 
 
 def _ensure_sheet_columns(conn) -> None:
@@ -535,12 +548,15 @@ def _credential_stock_status(row: dict) -> str:
 
 def credential_public(row: dict) -> dict:
     free = max(0, int(row.get("slots_total") or 0) - int(row.get("slots_used") or 0))
-    profile_slots = [
-        {"num": str(s.get("num") or "").strip()}
-        for s in _decode_profile_slots(row.get("profile_slots_enc"))
-        if str(s.get("num") or "").strip()
-    ]
-    sheet_meta = _parse_sheet_meta(row.get("sheet_meta"))
+    meta = _parse_sheet_meta(row.get("sheet_meta"))
+    profile_slots = []
+    if (meta or {}).get("service") == "hbo":
+        profile_slots = [
+            {"num": str(s.get("num") or "").strip()}
+            for s in _decode_profile_slots(row.get("profile_slots_enc"))
+            if str(s.get("num") or "").strip()
+        ]
+    sheet_meta = meta
     login = row.get("login") or ""
     is_url = login.startswith("http://") or login.startswith("https://")
     return {
@@ -826,6 +842,46 @@ def totp_code_for_payment(site_user_id: str, payment_id: str, ip: str = "") -> d
     return totp_code_for_delivery(site_user_id, access["id"], ip=ip)
 
 
+def _issue_totp_code(
+    *,
+    delivery_id: str,
+    site_user_id: str,
+    totp_enc: str,
+    ip: str = "",
+    active_check: dict | None = None,
+) -> dict:
+    if active_check is not None and not _delivery_active(active_check):
+        return {"ok": False, "error": "Підписка закінчилась"}
+    with db() as conn:
+        since_hour = (datetime.utcnow() - timedelta(minutes=_CODE_WINDOW_MIN)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        recent = conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM code_logs
+            WHERE delivery_id = ? AND created_at >= ?
+            """,
+            (delivery_id, since_hour),
+        ).fetchone()
+        if recent and int(recent["c"]) >= _CODE_LIMIT:
+            return {"ok": False, "error": "Забагато запитів. Спробуй пізніше або напиши менеджеру."}
+        since_window = (datetime.utcnow() - timedelta(seconds=28)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        logged = conn.execute(
+            """
+            SELECT 1 FROM code_logs
+            WHERE delivery_id = ? AND created_at >= ?
+            LIMIT 1
+            """,
+            (delivery_id, since_window),
+        ).fetchone()
+        if not logged:
+            conn.execute(
+                "INSERT INTO code_logs (id, delivery_id, user_id, ip, created_at) VALUES (?, ?, ?, ?, ?)",
+                (new_id(), delivery_id, site_user_id, ip or "", now()),
+            )
+    secret = decrypt(totp_enc)
+    data = totp_generate(secret)
+    return {"ok": True, "code": data["code"], "secondsLeft": data["secondsLeft"]}
+
+
 def totp_code_for_delivery(site_user_id: str, delivery_id: str, ip: str = "") -> dict:
     with db() as conn:
         row = conn.execute(
@@ -841,26 +897,13 @@ def totp_code_for_delivery(site_user_id: str, delivery_id: str, ip: str = "") ->
         if not row or not row["totp_enc"]:
             return {"ok": False, "error": "Для цього доступу немає 2FA"}
         data = dict(row)
-        if not _delivery_active(data):
-            return {"ok": False, "error": "Підписка закінчилась"}
-        # rate limit reuse via existing logs
-        since = (datetime.utcnow() - timedelta(minutes=_CODE_WINDOW_MIN)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        recent = conn.execute(
-            """
-            SELECT COUNT(*) AS c FROM code_logs
-            WHERE delivery_id = ? AND created_at >= ?
-            """,
-            (delivery_id, since),
-        ).fetchone()
-        if recent and int(recent["c"]) >= _CODE_LIMIT:
-            return {"ok": False, "error": "Забагато запитів. Спробуй пізніше або напиши менеджеру."}
-        conn.execute(
-            "INSERT INTO code_logs (id, delivery_id, user_id, ip, created_at) VALUES (?, ?, ?, ?, ?)",
-            (new_id(), delivery_id, site_user_id, ip or "", now()),
-        )
-    secret = decrypt(row["totp_enc"])
-    data = totp_generate(secret)
-    return {"ok": True, "code": data["code"], "secondsLeft": data["secondsLeft"]}
+    return _issue_totp_code(
+        delivery_id=delivery_id,
+        site_user_id=site_user_id,
+        totp_enc=row["totp_enc"],
+        ip=ip,
+        active_check=data,
+    )
 
 
 def append_orphan_deliveries(site_user_id: str, subs: dict) -> dict:
@@ -937,7 +980,7 @@ def append_orphan_deliveries(site_user_id: str, subs: dict) -> dict:
             "id": f"del-{access['id']}",
             "botId": None,
             "productId": pid,
-            "name": access.get("profileName") or f"Підписка #{pid}",
+            "name": _delivery_service_label(row) or f"Підписка #{pid}",
             "kind": "one_time",
             "status": "active",
             "source": "site",
@@ -1013,6 +1056,30 @@ def _sub_active(sub: dict) -> bool:
     return exp > datetime.now(timezone.utc)
 
 
+def _delivery_is_hbo(row: dict) -> bool:
+    meta = _parse_sheet_meta(row.get("sheet_meta"))
+    if meta and meta.get("service") == "hbo":
+        return True
+    label = (row.get("part_label") or "").lower()
+    return "hbo" in label
+
+
+def _delivery_service_label(row: dict) -> str | None:
+    meta = _parse_sheet_meta(row.get("sheet_meta"))
+    service = (meta or {}).get("service")
+    labels = {
+        "netflix": "Netflix",
+        "filmix": "Filmix",
+        "gpt": "ChatGPT",
+        "hbo": "HBO",
+        "iptv": "IPTV",
+    }
+    if service in labels:
+        return labels[service]
+    part = (row.get("part_label") or "").strip()
+    return part or None
+
+
 def _delivery_access(row: dict) -> dict:
     from .iptv_content import IPTV_DELIVERY_INSTRUCTIONS
 
@@ -1024,6 +1091,7 @@ def _delivery_access(row: dict) -> dict:
             pin = None
     two_fa_url = None
     sheet_meta = _parse_sheet_meta(row.get("sheet_meta"))
+    is_hbo = _delivery_is_hbo(row)
     if sheet_meta and sheet_meta.get("two_fa_url"):
         two_fa_url = sheet_meta["two_fa_url"]
     is_iptv = _credential_is_iptv(row)
@@ -1039,14 +1107,14 @@ def _delivery_access(row: dict) -> dict:
             "password": None,
             "hasTotp": False,
             "twoFaUrl": None,
-            "profileName": row.get("profile_name"),
+            "profileName": None,
             "pin": None,
             "botSubId": row.get("bot_sub_id"),
             "botSubKind": row.get("bot_sub_kind"),
             "paymentId": row.get("payment_id"),
             "expiresAt": row.get("expires_at"),
             "bundleProductId": str(row["bundle_product_id"]) if row.get("bundle_product_id") else None,
-            "partLabel": row.get("part_label"),
+            "partLabel": row.get("part_label") or _delivery_service_label(row),
         }
     return {
         "id": row["id"],
@@ -1055,14 +1123,14 @@ def _delivery_access(row: dict) -> dict:
         "password": decrypt(row["secret_enc"]),
         "hasTotp": bool(row.get("totp_enc")) or bool(two_fa_url),
         "twoFaUrl": two_fa_url,
-        "profileName": row.get("profile_name"),
-        "pin": pin,
+        "profileName": row.get("profile_name") if is_hbo else None,
+        "pin": pin if is_hbo else None,
         "botSubId": row.get("bot_sub_id"),
         "botSubKind": row.get("bot_sub_kind"),
         "paymentId": row.get("payment_id"),
         "expiresAt": row.get("expires_at"),
         "bundleProductId": str(row["bundle_product_id"]) if row.get("bundle_product_id") else None,
-        "partLabel": row.get("part_label"),
+        "partLabel": row.get("part_label") or _delivery_service_label(row),
     }
 
 
@@ -1142,30 +1210,19 @@ def totp_code_for_sub(site_user_id: str, sub_id: str, ip: str = "", sub: dict | 
         ).fetchone()
     if not row or not row["totp_enc"]:
         return {"ok": False, "error": "Для цієї підписки 2FA не налаштовано"}
-    since = (datetime.utcnow() - timedelta(minutes=_CODE_WINDOW_MIN)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with db() as conn:
-        count = conn.execute(
-            """
-            SELECT COUNT(*) AS c FROM code_logs
-            WHERE delivery_id = ? AND created_at >= ?
-            """,
-            (delivery["id"], since),
-        ).fetchone()
-        if count and int(count["c"]) >= _CODE_LIMIT:
-            return {"ok": False, "error": "Забагато запитів. Спробуй пізніше або напиши менеджеру."}
-        conn.execute(
-            "INSERT INTO code_logs (id, delivery_id, user_id, ip, created_at) VALUES (?, ?, ?, ?, ?)",
-            (new_id(), delivery["id"], site_user_id, ip or "", now()),
-        )
-    secret = decrypt(row["totp_enc"])
-    data = totp_generate(secret)
-    return {"ok": True, "code": data["code"], "secondsLeft": data["secondsLeft"]}
+    return _issue_totp_code(
+        delivery_id=delivery["id"],
+        site_user_id=site_user_id,
+        totp_enc=row["totp_enc"],
+        ip=ip,
+    )
 
 
 def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
     deliveries = list_deliveries_for_user(site_user_id)
     by_bot: dict[tuple[str, int], dict] = {}
     unlinked: dict[str, list[dict]] = {}
+    used_delivery_ids: set[str] = set()
     for row in deliveries:
         kind = row.get("bot_sub_kind")
         bot_id = row.get("bot_sub_id")
@@ -1174,21 +1231,34 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
         else:
             unlinked.setdefault(str(row["product_id"]), []).append(row)
 
+    def _take_unlinked(pool: list[dict]) -> dict | None:
+        while pool:
+            candidate = pool.pop(0)
+            cid = str(candidate.get("id") or "")
+            if cid and cid not in used_delivery_ids:
+                return candidate
+        return None
+
     def attach(sub: dict) -> None:
         kind = sub.get("kind") or "one_time"
         bot_id = sub.get("botId")
         row = None
         if bot_id:
-            row = by_bot.get((kind, int(bot_id)))
+            candidate = by_bot.get((kind, int(bot_id)))
+            cid = str(candidate.get("id") or "") if candidate else ""
+            if candidate and cid not in used_delivery_ids:
+                row = candidate
         if not row:
             pid = str(sub.get("productId") or "")
-            pool = unlinked.get(pid) or []
-            if not pool and pid.isdigit():
+            pool = list(unlinked.get(pid) or [])
+            row = _take_unlinked(pool)
+            unlinked[pid] = pool
+            if not row and pid.isdigit():
                 source_pid = str(stock_source_product_id(int(pid)))
                 if source_pid != pid:
-                    pool = unlinked.get(source_pid) or []
-            if pool:
-                row = pool.pop(0)
+                    pool = list(unlinked.get(source_pid) or [])
+                    row = _take_unlinked(pool)
+                    unlinked[source_pid] = pool
             elif pid and is_bundle_product(int(pid)):
                 bundle_rows = [
                     r for r in deliveries
@@ -1203,6 +1273,7 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
             sub.pop("deliveryId", None)
             sub.pop("accessParts", None)
             return
+        used_delivery_ids.add(str(row["id"]))
         payment_id = row.get("payment_id")
         bundle_id = row.get("bundle_product_id")
         sibling_rows = []
@@ -1231,6 +1302,8 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
             sub["profileName"] = parts[0].get("profileName")
             sub["pin"] = parts[0].get("pin")
             sub["deliveryId"] = parts[0].get("id")
+            for part in sibling_rows:
+                used_delivery_ids.add(str(part["id"]))
         else:
             access = parts[0]
             sub["login"] = access["login"]
@@ -1283,30 +1356,36 @@ async def link_delivery_to_bot_sub(payment_row: dict) -> None:
     except BotAPIError as e:
         log.warning("link delivery: %s", e)
         return
-    for sub in live.get("oneTime") or []:
-        if str(sub.get("productId")) == str(product_id) and sub.get("botId"):
+    def _link_kind(subs: list[dict], kind: str) -> bool:
+        for sub in subs:
+            if str(sub.get("productId")) != str(product_id) or not sub.get("botId"):
+                continue
+            bot_sub_id = int(sub["botId"])
             with db() as conn:
+                taken = conn.execute(
+                    """
+                    SELECT 1 FROM deliveries
+                    WHERE bot_sub_id = ? AND bot_sub_kind = ?
+                    LIMIT 1
+                    """,
+                    (bot_sub_id, kind),
+                ).fetchone()
+                if taken:
+                    continue
                 conn.execute(
                     """
                     UPDATE deliveries
-                    SET bot_sub_id = ?, bot_sub_kind = 'one_time'
+                    SET bot_sub_id = ?, bot_sub_kind = ?
                     WHERE payment_id = ? AND bot_sub_id IS NULL
                     """,
-                    (int(sub["botId"]), invoice_id),
+                    (bot_sub_id, kind, invoice_id),
                 )
-            return
-    for sub in live.get("recurring") or []:
-        if str(sub.get("productId")) == str(product_id) and sub.get("botId"):
-            with db() as conn:
-                conn.execute(
-                    """
-                    UPDATE deliveries
-                    SET bot_sub_id = ?, bot_sub_kind = 'recurring'
-                    WHERE payment_id = ? AND bot_sub_id IS NULL
-                    """,
-                    (int(sub["botId"]), invoice_id),
-                )
-            return
+            return True
+        return False
+
+    if _link_kind(live.get("oneTime") or [], "one_time"):
+        return
+    _link_kind(live.get("recurring") or [], "recurring")
 
 
 def _pick_verified_credential(conn, source_product_id: int) -> dict | None:
@@ -1349,18 +1428,21 @@ def _allocate_delivery(
     bundle_product_id: int | None,
     part_label: str | None,
     months: int,
-) -> str | None:
+) -> tuple[str | None, dict | None, str | None]:
     cred = _pick_verified_credential(conn, int(source_product_id))
     if not cred:
-        return None
+        return None, None, None
     delivery_id = new_id()
     slot_index = int(cred["slots_used"] or 0)
     profile_name, profile_pin = _profile_for_slot(cred, slot_index)
     sheet_meta = _parse_sheet_meta(cred.get("sheet_meta"))
-    if sheet_meta and sheet_meta.get("service") == "netflix" and sheet_meta.get("profile"):
-        profile_name = f"Профіль {sheet_meta['profile']}"
+    if sheet_meta and sheet_meta.get("service") == "hbo":
+        pass  # profile_name + pin з профілю HBO
     elif sheet_meta and sheet_meta.get("service") == "gpt" and sheet_meta.get("two_fa_url"):
         pass  # 2FA через flix2fa — URL у sheet_meta
+    elif sheet_meta:
+        profile_name = None
+        profile_pin = None
     profile_pin_enc = encrypt(profile_pin) if profile_pin else None
     expires = (datetime.utcnow() + timedelta(days=30 * max(1, int(months)))).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn.execute(
@@ -1389,8 +1471,31 @@ def _allocate_delivery(
             part_label,
         ),
     )
-    _mark_sheet_issued(cred, payment_row, expires, int(payment_row.get("months") or 1))
-    return delivery_id
+    return delivery_id, cred, expires
+
+
+def _bundle_delivery_complete_conn(
+    conn,
+    payment_id: str,
+    bundle_product_id: int,
+    site_user_id: str,
+) -> bool:
+    sources = get_bundle_sources_config(bundle_product_id)
+    if not sources:
+        row = conn.execute(
+            "SELECT 1 FROM deliveries WHERE payment_id = ? LIMIT 1",
+            (payment_id,),
+        ).fetchone()
+        return bool(row)
+    rows = conn.execute(
+        """
+        SELECT product_id, expires_at FROM deliveries
+        WHERE payment_id = ? AND site_user_id = ?
+        """,
+        (payment_id, site_user_id),
+    ).fetchall()
+    delivered = {int(r["product_id"]) for r in rows if _delivery_active(dict(r))}
+    return all(source_id in delivered for source_id in sources)
 
 
 def _parse_sheet_meta(raw: str | None) -> dict | None:
@@ -1429,12 +1534,16 @@ def try_deliver_bundle(payment_row: dict, sources: list[int], months: int = 1) -
     invoice_id = str(payment_row.get("invoice_id") or "")
     site_user_id = str(payment_row.get("site_user_id") or "")
     bundle_product_id = int(payment_row["product_id"])
-    if _bundle_delivery_complete(invoice_id, bundle_product_id, site_user_id):
-        return {"ok": True, "fresh": False}
-
     part_map = {int(part["id"]): part["name"] for part in get_bundle_source_parts(bundle_product_id)}
     delivery_ids: list[str] = []
+    sheet_marks: list[tuple[dict, dict, str, int]] = []
+    months_n = int(payment_row.get("months") or 1)
+
     with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if _bundle_delivery_complete_conn(conn, invoice_id, bundle_product_id, site_user_id):
+            return {"ok": True, "fresh": False}
+
         for source_id in sources:
             available = conn.execute(
                 """
@@ -1452,8 +1561,9 @@ def try_deliver_bundle(payment_row: dict, sources: list[int], months: int = 1) -
                 )
                 conn.rollback()
                 return {"ok": False, "reason": "no_stock", "missingProductId": int(source_id)}
+
         for source_id in sources:
-            delivery_id = _allocate_delivery(
+            delivery_id, cred, expires = _allocate_delivery(
                 conn,
                 payment_row=payment_row,
                 product_id=bundle_product_id,
@@ -1462,10 +1572,14 @@ def try_deliver_bundle(payment_row: dict, sources: list[int], months: int = 1) -
                 part_label=part_map.get(int(source_id)),
                 months=months,
             )
-            if not delivery_id:
+            if not delivery_id or not cred or not expires:
                 conn.rollback()
                 return {"ok": False, "reason": "no_stock", "missingProductId": int(source_id)}
             delivery_ids.append(delivery_id)
+            sheet_marks.append((cred, payment_row, expires, months_n))
+
+    for cred, row, expires, months_mark in sheet_marks:
+        _mark_sheet_issued(cred, row, expires, months_mark)
 
     log.info(
         "auto-delivered bundle %s (%s parts) for payment %s",
@@ -1491,12 +1605,26 @@ def try_deliver_for_payment(payment_row: dict, months: int = 1) -> dict:
     if bundle_sources:
         return try_deliver_bundle(payment_row, bundle_sources, months=months)
 
-    if get_delivery_by_payment(invoice_id):
-        return {"ok": True, "fresh": False}
-
     source_product_id = stock_source_product_id(product_id)
+    months_n = int(payment_row.get("months") or 1)
+    delivery_id: str | None = None
+    mark_cred: dict | None = None
+    mark_expires: str | None = None
+
     with db() as conn:
-        delivery_id = _allocate_delivery(
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            """
+            SELECT id FROM deliveries
+            WHERE payment_id = ? AND bundle_product_id IS NULL
+            LIMIT 1
+            """,
+            (invoice_id,),
+        ).fetchone()
+        if existing:
+            return {"ok": True, "fresh": False}
+
+        delivery_id, mark_cred, mark_expires = _allocate_delivery(
             conn,
             payment_row=payment_row,
             product_id=product_id,
@@ -1508,6 +1636,10 @@ def try_deliver_for_payment(payment_row: dict, months: int = 1) -> dict:
         if not delivery_id:
             log.warning("auto-issue: no stock for product %s payment %s", product_id, invoice_id)
             return {"ok": False, "reason": "no_stock"}
+
+    if mark_cred and mark_expires:
+        _mark_sheet_issued(mark_cred, payment_row, mark_expires, months_n)
+
     log.info("auto-delivered product %s for payment %s", product_id, invoice_id)
     return {"ok": True, "fresh": True, "deliveryId": delivery_id}
 

@@ -82,8 +82,21 @@ export type BotSubscription = {
   pin?: string | null;
   profileName?: string | null;
   hasTotp?: boolean;
+  twoFaUrl?: string | null;
   deliveryId?: string | null;
   autoIssue?: boolean;
+  isIptv?: boolean;
+  playlistUrl?: string | null;
+  deliveryInstructions?: string | null;
+  accessParts?: Array<{
+    label?: string | null;
+    login?: string | null;
+    password?: string | null;
+    profileName?: string | null;
+    pin?: string | null;
+    hasTotp?: boolean;
+    deliveryId?: string | null;
+  }>;
 };
 
 export type BillingEntry = {

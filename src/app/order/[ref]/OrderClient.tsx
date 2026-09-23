@@ -78,7 +78,7 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
     return () => clearInterval(t);
   }, [code, codeLeft]);
 
-  async function fetchCode() {
+  const fetchCode = useCallback(async () => {
     setCodeBusy(true);
     try {
       const res = await fetch(`/api/order/${encodeURIComponent(orderRef)}/code`, { method: "POST" });
@@ -94,9 +94,15 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
     } finally {
       setCodeBusy(false);
     }
-  }
+  }, [orderRef]);
 
   const paid = data && (data.status === "success" || data.status === "paid");
+
+  useEffect(() => {
+    if (!paid || !data?.delivery?.hasTotp || codeBusy) return;
+    if (code && codeLeft > 0) return;
+    fetchCode();
+  }, [paid, data?.delivery?.hasTotp, code, codeLeft, codeBusy, fetchCode]);
   const failed = data && (data.status === "failed" || data.status === "failure");
   const deliveryParts = data?.delivery
     ? (data.delivery.bundle && data.delivery.parts?.length
@@ -170,7 +176,7 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
               {deliveryParts.map((part, index) => (
                 <div key={part.id || index} style={{ marginBottom: index < deliveryParts.length - 1 ? 18 : 0 }}>
                   {(part.partLabel || part.label) && (
-                    <p className="order-hint" style={{ marginBottom: 8, fontWeight: 800 }}>
+                    <p className="order-hint" style={{ marginBottom: 8, fontWeight: 800, fontSize: 16 }}>
                       {part.partLabel || part.label}
                     </p>
                   )}
@@ -178,18 +184,6 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
                     <IptvAccess playlistUrl={part.playlistUrl} instructions={part.deliveryInstructions} />
                   ) : (
                     <div className="order-creds">
-                      {part.profileName && (
-                        <div>
-                          <small>Профіль</small>
-                          <code>{part.profileName}</code>
-                        </div>
-                      )}
-                      {part.pin && (
-                        <div>
-                          <small>PIN</small>
-                          <code>{part.pin}</code>
-                        </div>
-                      )}
                       {part.login && (
                         <div>
                           <small>Логін</small>
@@ -200,6 +194,18 @@ export function OrderClient({ orderRef }: { orderRef: string }) {
                         <div>
                           <small>Пароль</small>
                           <code>{part.password}</code>
+                        </div>
+                      )}
+                      {/hbo/i.test(part.partLabel || part.label || "") && part.profileName && (
+                        <div>
+                          <small>Профіль</small>
+                          <code>{part.profileName}</code>
+                        </div>
+                      )}
+                      {/hbo/i.test(part.partLabel || part.label || "") && part.pin && (
+                        <div>
+                          <small>PIN</small>
+                          <code>{part.pin}</code>
                         </div>
                       )}
                     </div>
