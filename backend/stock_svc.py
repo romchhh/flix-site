@@ -16,6 +16,7 @@ log = logging.getLogger("flix.site.stock")
 
 _CODE_LIMIT = 12
 _CODE_WINDOW_MIN = 60
+_VERIFY_ATTEMPTS = 25
 
 
 def init_stock_tables(conn) -> None:
@@ -1308,6 +1309,37 @@ async def link_delivery_to_bot_sub(payment_row: dict) -> None:
             return
 
 
+def _pick_verified_credential(conn, source_product_id: int) -> dict | None:
+    """Обирає акаунт зі складу; для таблиць — перевіряє рядок у Google Sheets."""
+    from . import sheets_svc
+
+    for _ in range(_VERIFY_ATTEMPTS):
+        row = conn.execute(
+            """
+            SELECT * FROM credentials
+            WHERE product_id = ? AND active = 1 AND slots_used < slots_total
+            ORDER BY
+                CASE WHEN external_source = 'sheets' THEN 1 ELSE 0 END ASC,
+                slots_used DESC,
+                created_at ASC
+            LIMIT 1
+            """,
+            (int(source_product_id),),
+        ).fetchone()
+        if not row:
+            return None
+        cred = dict(row)
+        if cred.get("external_source") == "sheets" and not sheets_svc.verify_sheet_credential(cred):
+            conn.execute("UPDATE credentials SET active = 0 WHERE id = ?", (cred["id"],))
+            log.warning(
+                "auto-issue: sheet row no longer free, deactivated credential %s",
+                cred["id"],
+            )
+            continue
+        return cred
+    return None
+
+
 def _allocate_delivery(
     conn,
     *,
@@ -1318,21 +1350,9 @@ def _allocate_delivery(
     part_label: str | None,
     months: int,
 ) -> str | None:
-    cred = conn.execute(
-        """
-        SELECT * FROM credentials
-        WHERE product_id = ? AND active = 1 AND slots_used < slots_total
-        ORDER BY
-            CASE WHEN external_source = 'sheets' THEN 1 ELSE 0 END ASC,
-            slots_used DESC,
-            created_at ASC
-        LIMIT 1
-        """,
-        (int(source_product_id),),
-    ).fetchone()
+    cred = _pick_verified_credential(conn, int(source_product_id))
     if not cred:
         return None
-    cred = dict(cred)
     delivery_id = new_id()
     slot_index = int(cred["slots_used"] or 0)
     profile_name, profile_pin = _profile_for_slot(cred, slot_index)

@@ -21,7 +21,7 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 # Лист1 — Netflix: жовті (доступні) → після видачі сині + термін у col D
 # Лист2 — Filmix: вільні рядки без ніка/дати → після видачі нік + дата
-# Лист3 — GPT: вільні без дати/id/ніка → після видачі дата + id + нік
+# Лист3 — GPT: A/B логін/пароль, G 2FA ключ, D/E/F дата/id/нік → після видачі заповнюються
 # Лист5 — HBO: вільні без дати/id/ніка → після видачі дата + id + нік
 # Лист6 — IPTV: col A посилання, col B нік, col C дата → після видачі нік + дата
 
@@ -45,7 +45,7 @@ SHEET_CONFIGS: dict[str, dict[str, Any]] = {
         "product_keywords": ("chatgpt",),
         "exclude_keywords": ("claude", "+"),
         "prefer_keywords": ("plus",),
-        "cols": {"login": 0, "password": 1, "two_fa": 2, "expiry": 3, "tg_id": 4, "nick": 5},
+        "cols": {"login": 0, "password": 1, "two_fa": 6, "expiry": 3, "tg_id": 4, "nick": 5},
     },
     "hbo": {
         "sheet": "Лист5",
@@ -200,6 +200,20 @@ def _filmix_available(row: list) -> bool:
     return bool(login and password and not nick and not expiry)
 
 
+def _gpt_two_fa_raw(row: list) -> str:
+    """2FA ключ у колонці G; колонка C лишається запасним варіантом."""
+    return _cell(row, 6) or _cell(row, 2)
+
+
+def _parse_gpt_two_fa(raw: str) -> tuple[str | None, str | None]:
+    value = (raw or "").strip()
+    if not value:
+        return None, None
+    if value.lower().startswith("http"):
+        return value, None
+    return None, value.replace(" ", "").upper()
+
+
 def _gpt_available(row: list) -> bool:
     login = _cell(row, 0)
     password = _cell(row, 1)
@@ -292,14 +306,16 @@ def _collect_available(service) -> list[dict]:
     for i, row in enumerate(gpt_values):
         if not _gpt_available(row):
             continue
-        two_fa = _cell(row, 2)
+        two_fa_raw = _gpt_two_fa_raw(row)
+        two_fa_url, _ = _parse_gpt_two_fa(two_fa_raw)
         items.append({
             "service": "gpt",
             "sheet": "Лист3",
             "row": i + 1,
             "login": _cell(row, 0),
             "password": _cell(row, 1),
-            "two_fa_url": two_fa,
+            "two_fa_raw": two_fa_raw,
+            "two_fa_url": two_fa_url,
             "external_id": f"gpt:{i + 1}",
         })
 
@@ -346,12 +362,20 @@ def _upsert_credential(
     from .db import new_id
     from .stock_svc import _encode_profile_slots
 
+    two_fa_url = item.get("two_fa_url")
+    totp_enc = None
+    if item["service"] == "gpt":
+        parsed_url, totp_secret = _parse_gpt_two_fa(item.get("two_fa_raw") or "")
+        two_fa_url = parsed_url
+        if totp_secret:
+            totp_enc = encrypt(totp_secret)
+
     meta = {
         "service": item["service"],
         "sheet": item["sheet"],
         "row": item["row"],
         "profile": item.get("profile"),
-        "two_fa_url": item.get("two_fa_url"),
+        "two_fa_url": two_fa_url,
         "playlist_url": item.get("playlist_url"),
     }
     meta_json = json.dumps(meta, ensure_ascii=False)
@@ -373,7 +397,7 @@ def _upsert_credential(
                 """
                 UPDATE credentials SET
                     product_id = ?, login = ?, secret_enc = ?, note = ?, sheet_meta = ?,
-                    active = 1, slots_total = ?
+                    active = 1, slots_total = ?, totp_enc = ?
                 WHERE id = ?
                 """,
                 (
@@ -383,6 +407,7 @@ def _upsert_credential(
                     note,
                     meta_json,
                     max(1, slots_used),
+                    totp_enc,
                     cred_id,
                 ),
             )
@@ -391,16 +416,9 @@ def _upsert_credential(
                     "UPDATE credentials SET profile_slots_enc = ? WHERE id = ?",
                     (_encode_profile_slots(profile_slots), cred_id),
                 )
-            two_fa = item.get("two_fa_url") or ""
-            if two_fa and item["service"] == "gpt":
-                conn.execute(
-                    "UPDATE credentials SET totp_enc = NULL WHERE id = ?",
-                    (cred_id,),
-                )
             return cred_id
 
         cred_id = new_id()
-        totp_enc = None
         profile_enc = _encode_profile_slots(profile_slots) if profile_slots else None
 
         conn.execute(
@@ -521,6 +539,95 @@ def import_stock(catalog_products: list[dict]) -> dict:
         imported, deactivated, len(available),
     )
     return result
+
+
+def _fetch_sheet_row(
+    service,
+    sheet_name: str,
+    row_num: int,
+    *,
+    with_colors: bool = False,
+) -> tuple[list, dict | None]:
+    if row_num < 1:
+        return [], None
+    row_range = f"'{sheet_name}'!A{row_num}:H{row_num}"
+    if with_colors:
+        result = service.spreadsheets().get(
+            spreadsheetId=GOOGLE_SHEETS_ID,
+            ranges=[row_range],
+            includeGridData=True,
+        ).execute()
+        grid_rows = result["sheets"][0].get("data", [{}])[0].get("rowData", [])
+        if not grid_rows:
+            return [], None
+        row_meta = grid_rows[0]
+        cells = row_meta.get("values", [])
+        return [c.get("formattedValue", "") for c in cells], row_meta
+    result = service.spreadsheets().values().get(
+        spreadsheetId=GOOGLE_SHEETS_ID,
+        range=row_range,
+        valueRenderOption="FORMATTED_VALUE",
+    ).execute()
+    values = (result.get("values") or [[]])[0]
+    return values, None
+
+
+def _service_row_available(service_key: str, row: list, row_meta: dict | None) -> bool:
+    if service_key == "netflix":
+        return _netflix_available(row, row_meta)
+    if service_key == "filmix":
+        return _filmix_available(row)
+    if service_key == "gpt":
+        return _gpt_available(row)
+    if service_key == "hbo":
+        return _hbo_available(row)
+    if service_key == "iptv":
+        return _iptv_available(row)
+    return True
+
+
+def verify_sheet_credential(cred: dict) -> bool:
+    """Перевірити в Google Таблиці, що рядок досі вільний (перед видачею після оплати)."""
+    if cred.get("external_source") != "sheets":
+        return True
+    raw_meta = cred.get("sheet_meta")
+    if not raw_meta:
+        return True
+    try:
+        meta = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
+    except (TypeError, json.JSONDecodeError):
+        return True
+    if not isinstance(meta, dict):
+        return True
+
+    service_key = meta.get("service")
+    sheet_name = meta.get("sheet")
+    row_num = int(meta.get("row") or 0)
+    if not service_key or not sheet_name or row_num < 1:
+        return True
+
+    service = _service()
+    if not service:
+        log.warning("verify sheet: Google API unavailable, skip live check for %s", cred.get("id"))
+        return True
+
+    try:
+        row, row_meta = _fetch_sheet_row(
+            service,
+            sheet_name,
+            row_num,
+            with_colors=service_key == "netflix",
+        )
+        if not row:
+            log.warning("verify sheet: row missing %s:%s", sheet_name, row_num)
+            return False
+        available = _service_row_available(service_key, row, row_meta)
+        if not available:
+            log.info("verify sheet: row %s:%s already used", sheet_name, row_num)
+        return available
+    except Exception as e:
+        log.warning("verify sheet %s:%s failed: %s", sheet_name, row_num, e)
+        return True
 
 
 def _user_nick(payment_row: dict) -> str:
