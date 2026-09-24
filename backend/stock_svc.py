@@ -1268,8 +1268,7 @@ def _find_delivery_for_sub(sub: dict, deliveries: list[dict], used_ids: set[str]
         unlinked.sort(key=lambda d: d.get("created_at") or "", reverse=True)
         return unlinked[0]
 
-    pool.sort(key=lambda d: d.get("created_at") or "", reverse=True)
-    return pool[0]
+    return None
 
 
 def _apply_delivery_to_sub(sub: dict, row: dict, deliveries: list[dict]) -> None:
@@ -1383,9 +1382,6 @@ async def link_delivery_to_bot_sub(payment_row: dict) -> None:
     deliveries = get_deliveries_by_payment(invoice_id)
     if not deliveries:
         return
-    delivery = deliveries[0]
-    if delivery.get("bot_sub_id"):
-        return
     bot_user_id = int(payment_row["bot_user_id"])
     product_id = int(payment_row["product_id"])
     try:
@@ -1411,9 +1407,10 @@ async def link_delivery_to_bot_sub(payment_row: dict) -> None:
                     """
                     SELECT 1 FROM deliveries
                     WHERE bot_sub_id = ? AND bot_sub_kind = ?
+                      AND payment_id != ?
                     LIMIT 1
                     """,
-                    (bot_sub_id, kind),
+                    (bot_sub_id, kind, invoice_id),
                 ).fetchone()
                 if taken:
                     continue
@@ -1421,7 +1418,7 @@ async def link_delivery_to_bot_sub(payment_row: dict) -> None:
                     """
                     UPDATE deliveries
                     SET bot_sub_id = ?, bot_sub_kind = ?
-                    WHERE payment_id = ? AND bot_sub_id IS NULL
+                    WHERE payment_id = ?
                     """,
                     (bot_sub_id, kind, invoice_id),
                 )

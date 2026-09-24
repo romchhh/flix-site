@@ -101,14 +101,31 @@ def _is_blueish(r: float, g: float, b: float) -> bool:
     return b > 0.75 and g > 0.5 and r < 0.6
 
 
-def _netflix_expiry_cell_color(row_data: dict | None) -> tuple[float, float, float] | None:
-    """Колір лише комірки терміну (col D), не всього рядка."""
+def _col_letter(idx: int) -> str:
+    return chr(ord("A") + int(idx))
+
+
+def _netflix_cols(row: list) -> tuple[int, int, int, int]:
+    """
+    Лист1 Netflix: A часто № рядка → логін у C, пароль D, термін E, профіль F.
+    Старий варіант без колонки A: B/C/D/E.
+    """
+    if "@" in _cell(row, 2):
+        return 2, 3, 4, 5
+    return 1, 2, 3, 4
+
+
+def _netflix_expiry_cell_color(
+    row_data: dict | None,
+    expiry_idx: int,
+) -> tuple[float, float, float] | None:
+    """Колір лише комірки терміну, не всього рядка."""
     if not row_data:
         return None
     cells = row_data.get("values", [])
-    if len(cells) <= 3:
+    if len(cells) <= expiry_idx:
         return None
-    bg = (cells[3].get("effectiveFormat") or {}).get("backgroundColor") or {}
+    bg = (cells[expiry_idx].get("effectiveFormat") or {}).get("backgroundColor") or {}
     r = bg.get("red", 1.0)
     g = bg.get("green", 1.0)
     b = bg.get("blue", 1.0)
@@ -118,10 +135,11 @@ def _netflix_expiry_cell_color(row_data: dict | None) -> tuple[float, float, flo
 
 
 def _netflix_row_is_used(row: list, row_data: dict | None) -> bool:
-    """Виданий: є термін у col D або комірка D забарвлена (бірюзовий/синій)."""
-    if _cell(row, 3):
+    """Виданий: є термін або комірка терміну забарвлена (бірюзовий/синій)."""
+    _, _, expiry_idx, _ = _netflix_cols(row)
+    if _cell(row, expiry_idx):
         return True
-    color = _netflix_expiry_cell_color(row_data)
+    color = _netflix_expiry_cell_color(row_data, expiry_idx)
     if not color:
         return False
     r, g, b = color
@@ -202,8 +220,9 @@ def resolve_product_id(
 
 
 def _netflix_available(row: list, row_data: dict | None) -> bool:
-    login = _cell(row, 1)
-    password = _cell(row, 2)
+    login_idx, pwd_idx, _, _ = _netflix_cols(row)
+    login = _cell(row, login_idx)
+    password = _cell(row, pwd_idx)
     if not login or not password:
         return False
     return not _netflix_row_is_used(row, row_data)
@@ -296,13 +315,14 @@ def _collect_available(service) -> list[dict]:
     for i, row in enumerate(netflix_values):
         if not _netflix_available(row, netflix_meta[i] if i < len(netflix_meta) else None):
             continue
+        login_idx, pwd_idx, _, profile_idx = _netflix_cols(row)
         items.append({
             "service": "netflix",
             "sheet": "Лист1",
             "row": i + 1,
-            "login": _cell(row, 1),
-            "password": _cell(row, 2),
-            "profile": _cell(row, 4),
+            "login": _cell(row, login_idx),
+            "password": _cell(row, pwd_idx),
+            "profile": _cell(row, profile_idx),
             "external_id": f"netflix:{i + 1}",
         })
 
@@ -409,12 +429,11 @@ def _upsert_credential(
     with db() as conn:
         if existing:
             cred_id = existing["id"]
-            slots_used = int(existing.get("slots_used") or 0)
             conn.execute(
                 """
                 UPDATE credentials SET
                     product_id = ?, login = ?, secret_enc = ?, note = ?, sheet_meta = ?,
-                    active = 1, slots_total = ?, totp_enc = ?
+                    active = 1, slots_total = 1, slots_used = 0, totp_enc = ?
                 WHERE id = ?
                 """,
                 (
@@ -423,7 +442,6 @@ def _upsert_credential(
                     encrypt(item["password"]),
                     note,
                     meta_json,
-                    max(1, slots_used),
                     totp_enc,
                     cred_id,
                 ),
@@ -518,28 +536,6 @@ def import_stock(catalog_products: list[dict]) -> dict:
         seen_ext.add(ext_id)
         prev = existing_by_ext.get(ext_id)
 
-        if prev and int(prev.get("slots_used") or 0) > 0:
-            with db() as conn:
-                active_delivery = conn.execute(
-                    """
-                    SELECT 1 FROM deliveries
-                    WHERE credential_id = ?
-                      AND (expires_at IS NULL OR expires_at > ?)
-                    LIMIT 1
-                    """,
-                    (prev["id"], now()),
-                ).fetchone()
-            if active_delivery:
-                continue
-            with db() as conn:
-                conn.execute(
-                    "UPDATE credentials SET slots_used = 0, active = 1 WHERE id = ?",
-                    (prev["id"],),
-                )
-            prev = dict(prev)
-            prev["slots_used"] = 0
-            prev["active"] = 1
-
         try:
             _upsert_credential(item, product_id, prev)
             imported += 1
@@ -553,28 +549,15 @@ def import_stock(catalog_products: list[dict]) -> dict:
     with db() as conn:
         for ext_id, row in existing_by_ext.items():
             if ext_id in seen_ext:
-                slots_used = int(row.get("slots_used") or 0)
-                active_delivery = conn.execute(
+                conn.execute(
                     """
-                    SELECT 1 FROM deliveries
-                    WHERE credential_id = ?
-                      AND (expires_at IS NULL OR expires_at > ?)
-                    LIMIT 1
+                    UPDATE credentials
+                    SET slots_used = 0, active = 1, slots_total = 1
+                    WHERE id = ?
                     """,
-                    (row["id"], now()),
-                ).fetchone()
-                if not active_delivery and slots_used > 0:
-                    conn.execute(
-                        "UPDATE credentials SET slots_used = 0, active = 1 WHERE id = ?",
-                        (row["id"],),
-                    )
-                    reactivated += 1
-                elif not int(row.get("active") or 0) and slots_used == 0:
-                    conn.execute(
-                        "UPDATE credentials SET active = 1 WHERE id = ?",
-                        (row["id"],),
-                    )
-                    reactivated += 1
+                    (row["id"],),
+                )
+                reactivated += 1
                 continue
             if int(row.get("slots_used") or 0) > 0:
                 continue
@@ -779,9 +762,12 @@ def _get_sheet_id(service, sheet_name: str) -> int | None:
 
 def _mark_netflix(service, sheet_name: str, row: int, expiry: str) -> None:
     sheet_id = _get_sheet_id(service, sheet_name)
+    row_values, _ = _fetch_sheet_row(service, sheet_name, row, with_colors=False)
+    _, _, expiry_idx, _ = _netflix_cols(row_values or [])
+    expiry_col = _col_letter(expiry_idx)
     service.spreadsheets().values().update(
         spreadsheetId=GOOGLE_SHEETS_ID,
-        range=f"'{sheet_name}'!D{row}",
+        range=f"'{sheet_name}'!{expiry_col}{row}",
         valueInputOption="USER_ENTERED",
         body={"values": [[expiry]]},
     ).execute()
