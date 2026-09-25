@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from backend.crypto import encrypt
 from backend.db import db, init_db, new_id, now
 from backend.sheets_svc import (
-    _format_expiry,
+    _format_sheet_term,
     _gpt_available,
     _netflix_available,
     _netflix_row_is_used,
@@ -69,10 +69,15 @@ def test_netflix_availability() -> None:
     assert _netflix_available(row_new, None)
     assert not _netflix_available(row_new, meta_e_cyan)
     assert not _netflix_available(["385", "", "a@b.com", "323433", "24.10.2026", ""], None)
+    assert not _netflix_available(["385", "", "a@b.com", "323433", "3", ""], None)
 
 
-def test_expiry_format() -> None:
-    assert _format_expiry(datetime(2026, 10, 23, tzinfo=timezone.utc)) == "23.10.2026"
+def test_sheet_term_format() -> None:
+    assert _format_sheet_term(1) == "1"
+    assert _format_sheet_term(3) == "3"
+    assert _format_sheet_term(6) == "6"
+    assert _format_sheet_term(12) == "12"
+    assert _format_sheet_term(2) == "3"
 
 
 def test_netflix_stock_alias() -> None:
@@ -256,7 +261,7 @@ def test_orphan_delivery() -> None:
 def main() -> None:
     tests = [
         test_netflix_availability,
-        test_expiry_format,
+        test_sheet_term_format,
         test_netflix_stock_alias,
         test_delivery_race,
         test_enrich_newest_sub_gets_unlinked,

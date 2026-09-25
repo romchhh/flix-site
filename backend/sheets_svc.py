@@ -19,7 +19,7 @@ log = logging.getLogger("flix.site.sheets")
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-# Лист1 — Netflix: жовті (доступні) → після видачі сині + термін у col D
+# Лист1 — Netflix: жовті (доступні) → після видачі сині + термін (1/3/6/12) у колонці E
 # Лист2 — Filmix: вільні рядки без ніка/дати → після видачі нік + дата
 # Лист3 — GPT: A/B логін/пароль, G 2FA ключ, D/E/F дата/id/нік → після видачі заповнюються
 # Лист5 — HBO: вільні без дати/id/ніка → після видачі дата + id + нік
@@ -167,8 +167,25 @@ def _row_bg_color(row_data: dict | None) -> tuple[float, float, float] | None:
     return None
 
 
+_SHEET_TERM_MONTHS = (1, 3, 6, 12)
+
+
+def _format_sheet_term(months: int) -> str:
+    """Термін у Google Таблиці — як у Telegram-боті: 1, 3, 6 або 12."""
+    m = int(months or 1)
+    if m in _SHEET_TERM_MONTHS:
+        return str(m)
+    if m <= 1:
+        return "1"
+    if m <= 3:
+        return "3"
+    if m <= 6:
+        return "6"
+    return "12"
+
+
 def _format_expiry(dt: datetime) -> str:
-    """Як у Telegram-боті: DD.MM.YYYY."""
+    """Застарілий формат дати; у таблицю пишемо _format_sheet_term."""
     return dt.strftime("%d.%m.%Y")
 
 
@@ -704,24 +721,21 @@ def mark_row_issued(
     if not service_key or not sheet_name or row_num < 1:
         return False
 
-    exp_dt = _parse_expiry(expires_at or "")
-    if not exp_dt:
-        exp_dt = datetime.now(timezone.utc) + timedelta(days=30 * max(1, months))
-    expiry_str = _format_expiry(exp_dt)
+    term_str = _format_sheet_term(months)
     nick = _user_nick(payment_row)
     tg_id = _user_tg_id(payment_row)
 
     try:
         if service_key == "netflix":
-            _mark_netflix(service, sheet_name, row_num, expiry_str)
+            _mark_netflix(service, sheet_name, row_num, term_str)
         elif service_key == "filmix":
-            _mark_filmix(service, sheet_name, row_num, nick, expiry_str)
+            _mark_filmix(service, sheet_name, row_num, nick, term_str)
         elif service_key == "gpt":
-            _mark_gpt(service, sheet_name, row_num, expiry_str, tg_id, nick)
+            _mark_gpt(service, sheet_name, row_num, term_str, tg_id, nick)
         elif service_key == "hbo":
-            _mark_hbo(service, sheet_name, row_num, expiry_str, tg_id, nick)
+            _mark_hbo(service, sheet_name, row_num, term_str, tg_id, nick)
         elif service_key == "iptv":
-            _mark_iptv(service, sheet_name, row_num, nick, expiry_str)
+            _mark_iptv(service, sheet_name, row_num, nick, term_str)
         else:
             return False
         log.info("marked sheet row %s:%s as issued", sheet_name, row_num)
