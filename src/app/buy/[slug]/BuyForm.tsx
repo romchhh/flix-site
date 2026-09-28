@@ -9,6 +9,7 @@ import { SUPPORT_TG } from "@/lib/seo";
 
 export function BuyForm({
   productId,
+  slug,
   options,
   free,
   recurring = false,
