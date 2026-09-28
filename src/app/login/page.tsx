@@ -19,10 +19,10 @@ export const metadata: Metadata = pageMetadata({
 
 export default async function LoginPage({ searchParams }:
   { searchParams: Promise<{ mode?: string; verify?: string; next?: string }> }) {
-  const me = await currentUser();
-  if (me) redirect("/cabinet");
-
   const { mode, verify, next } = await searchParams;
+  const me = await currentUser();
+  const returnTo = next && next.startsWith("/") ? next : "/cabinet";
+  if (me && !me.isGuest) redirect(returnTo);
 
   return (
     <div className="auth-wrap">

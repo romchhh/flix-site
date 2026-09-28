@@ -20,12 +20,12 @@ from . import bot_client, catalog_svc, mail, monopay, payments_svc, sheets_svc, 
 from .bot_client import BotAPIError
 from .db import (
     confirm_telegram_login,
-    create_guest_user,
     db,
     get_bot_sub_cache,
     get_telegram_login,
     init_db,
     is_guest_user,
+    is_registered_user,
     later,
     new_id,
     now,
@@ -333,17 +333,6 @@ async def resolve_bot_user_id(user_row, site_user_id: str) -> int | None:
     return None
 
 
-async def ensure_checkout_identity(request: Request) -> tuple[dict, str, bool]:
-    """Повертає (user, site_user_id, created_guest). Без Telegram — гість або email-акаунт."""
-    uid = current_user_id(request)
-    if uid:
-        me = get_user(uid)
-        if me:
-            return me, uid, False
-    guest = create_guest_user()
-    return guest, guest["id"], True
-
-
 async def _telegram_from_bot_login(params: dict) -> tuple[dict, str] | None:
     """Якщо підпис не зійшовся, але бот уже підтвердив login_token — довіряємо API бота."""
     login_token = str(params.get("login_token") or "").strip()
@@ -550,18 +539,35 @@ async def register(request: Request):
     problem = password_problem(password)
     if problem:
         return json_error(problem)
+    session_uid = current_user_id(request)
+    guest_row = None
+    if session_uid:
+        guest_row = get_user(session_uid)
+        if guest_row and not is_guest_user(guest_row):
+            guest_row = None
+
     with db() as conn:
         if conn.execute("SELECT id FROM users WHERE email = ?", (mail_addr,)).fetchone():
             return json_error("Такий акаунт вже є. Спробуй увійти.", 409)
-        user_id = new_id()
         is_admin = 1 if mail_addr in ADMIN_EMAILS else 0
-        conn.execute(
-            """
-            INSERT INTO users (id, email, password_hash, is_admin, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (user_id, mail_addr, hash_password(password), is_admin, now()),
-        )
+        if guest_row:
+            user_id = guest_row["id"]
+            conn.execute(
+                """
+                UPDATE users SET email = ?, password_hash = ?, is_admin = ?
+                WHERE id = ?
+                """,
+                (mail_addr, hash_password(password), is_admin, user_id),
+            )
+        else:
+            user_id = new_id()
+            conn.execute(
+                """
+                INSERT INTO users (id, email, password_hash, is_admin, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (user_id, mail_addr, hash_password(password), is_admin, now()),
+            )
         token = secrets.token_urlsafe(32)
         conn.execute(
             """
@@ -894,9 +900,19 @@ async def checkout(request: Request):
     except (TypeError, ValueError):
         return json_error("Некоректні дані замовлення")
 
-    me, uid, created_guest = await ensure_checkout_identity(request)
+    uid = current_user_id(request)
+    if not uid:
+        return json_error("Увійди або зареєструйся, щоб оформити замовлення", 401)
+    me = get_user(uid)
+    if not me:
+        return json_error("Увійди або зареєструйся, щоб оформити замовлення", 401)
+    if not is_registered_user(me):
+        return json_error(
+            "Оформлення лише для зареєстрованих. Увійди через пошту або Telegram — покупки збережуться в кабінеті.",
+            403,
+        )
     telegram_id = me.get("telegram_id")
-    username = me.get("telegram_name") or (None if is_guest_user(me) else me.get("email")) or "guest"
+    username = me.get("telegram_name") or me.get("email") or "user"
 
     item = await catalog_svc.get_product(str(product_id_int))
     if not item:
@@ -971,10 +987,7 @@ async def checkout(request: Request):
         "invoice_id": created["invoice_id"],
         "payment_id": created["payment_id"],
         "autoIssue": auto_issue,
-        "guest": created_guest or is_guest_user(me),
     })
-    if created_guest:
-        set_cookie(resp, uid)
     return resp
 
 

@@ -1,6 +1,8 @@
 "use client";
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import type { Plan } from "@/lib/plan-types";
+import type { SiteUser } from "@/lib/types";
 import { uah } from "@/lib/display";
 import { Arrow } from "@/components/Logo";
 import { SUPPORT_TG } from "@/lib/seo";
@@ -22,8 +24,20 @@ export function BuyForm({
   const [months, setMonths] = useState(options[0]?.months ?? 0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [user, setUser] = useState<SiteUser | null | undefined>(undefined);
+  const buyPath = `/buy/${slug}`;
+  const loginHref = `/login?next=${encodeURIComponent(buyPath)}`;
+  const regHref = `/login?mode=reg&next=${encodeURIComponent(buyPath)}`;
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setUser(data))
+      .catch(() => setUser(null));
+  }, []);
 
   const chosen = options.find((o) => o.months === months);
+  const canCheckout = user && !user.isGuest;
   const soldOut = free !== null && free <= 0;
 
   async function pay() {
@@ -37,7 +51,13 @@ export function BuyForm({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Не вдалось створити замовлення");
+        const msg = data.error ?? "Не вдалось створити замовлення";
+        if (res.status === 401 || res.status === 403) {
+          setError(msg);
+          setUser((prev) => (prev && !prev.isGuest ? prev : null));
+        } else {
+          setError(msg);
+        }
         return;
       }
       if (!data.pageUrl) {
@@ -116,6 +136,17 @@ export function BuyForm({
           Оплата карткою через Monobank.
           {recurring ? " Наступні списання — раз на місяць, тією ж карткою." : ""}
         </p>
+        {user !== undefined && !canCheckout && (
+          <p className="buy-form-note buy-form-note-box">
+            {user?.isGuest
+              ? "Щоб оплатити, створи акаунт або увійди — тоді підписка зʼявиться в кабінеті навіть після очищення кукі."
+              : "Спочатку увійди або зареєструйся — без цього замовлення не оформити."}
+            {" "}
+            <Link href={loginHref} style={{ fontWeight: 800 }}>Увійти</Link>
+            {" · "}
+            <Link href={regHref} style={{ fontWeight: 800 }}>Реєстрація</Link>
+          </p>
+        )}
       </section>
 
       <div className="buy-pay-wrap">
@@ -126,9 +157,14 @@ export function BuyForm({
           </div>
           {soldOut ? (
             <button className="btn buy-pay-btn" type="button" disabled>Немає в наявності</button>
+          ) : !canCheckout && user !== undefined ? (
+            <Link className="btn buy-pay-btn" href={regHref}>
+              Увійти / реєстрація
+              <span className="dot"><Arrow /></span>
+            </Link>
           ) : (
-            <button className="btn buy-pay-btn" type="button" onClick={pay} disabled={busy}>
-              {busy ? "Створюємо…" : "До оплати"}
+            <button className="btn buy-pay-btn" type="button" onClick={pay} disabled={busy || user === undefined}>
+              {busy ? "Створюємо…" : user === undefined ? "Перевіряємо…" : "До оплати"}
               <span className="dot"><Arrow /></span>
             </button>
           )}

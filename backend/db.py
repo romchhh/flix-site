@@ -276,3 +276,15 @@ def is_guest_user(row: dict | None) -> bool:
     email = str(row.get("email") or "")
     return email.endswith(f"@{GUEST_EMAIL_DOMAIN}")
 
+
+def is_registered_user(row: dict | None) -> bool:
+    """Оформлення замовлення: Telegram або email з паролем (не анонімний гість)."""
+    if not row:
+        return False
+    if row.get("telegram_id"):
+        return True
+    email = str(row.get("email") or "")
+    if not email or email.endswith(f"@{GUEST_EMAIL_DOMAIN}"):
+        return False
+    return bool(row.get("password_hash"))
+
