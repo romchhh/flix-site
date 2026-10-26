@@ -773,10 +773,9 @@ def _bundle_delivery_complete(payment_id: str, bundle_product_id: int, site_user
 
 
 def _access_parts_from_rows(rows: list[dict]) -> list[dict]:
+    """Креденшали показуємо завжди — строк видимості задає підписка (_sub_active), не delivery.expires_at."""
     parts = []
     for row in rows:
-        if not _delivery_active(row):
-            continue
         access = _delivery_access(row)
         if access.get("partLabel"):
             access["label"] = access["partLabel"]
@@ -896,13 +895,11 @@ def totp_code_for_delivery(site_user_id: str, delivery_id: str, ip: str = "") ->
         ).fetchone()
         if not row or not row["totp_enc"]:
             return {"ok": False, "error": "Для цього доступу немає 2FA"}
-        data = dict(row)
     return _issue_totp_code(
         delivery_id=delivery_id,
         site_user_id=site_user_id,
         totp_enc=row["totp_enc"],
         ip=ip,
-        active_check=data,
     )
 
 
@@ -922,8 +919,6 @@ def append_orphan_deliveries(site_user_id: str, subs: dict) -> dict:
     seen_bundle_payments: set[str] = set()
     for row in deliveries:
         if str(row["id"]) in linked_ids:
-            continue
-        if not _delivery_active(row):
             continue
         bundle_product_id = row.get("bundle_product_id")
         payment_id = row.get("payment_id")
@@ -1047,7 +1042,7 @@ def _delivery_active(row: dict) -> bool:
 
 
 def _sub_active(sub: dict) -> bool:
-    """Доступ активний, поки не минув expiresAt (скасоване автосписання не ховає дані)."""
+    """Видимість доступу в кабінеті — по expiresAt підписки (не по deliveries.expires_at)."""
     exp = _parse_iso(sub.get("expiresAt"))
     if not exp:
         status = (sub.get("status") or "").lower()
@@ -1155,8 +1150,7 @@ def delivery_for_sub(site_user_id: str, sub_id: str, sub: dict | None = None) ->
             ).fetchone()
         if not row:
             return None
-        data = dict(row)
-        return _delivery_access(data) if _delivery_active(data) else None
+        return _delivery_access(dict(row))
     raw = (sub_id or "").replace("rec-", "").replace("one-", "")
     kind = "recurring" if sub_id.startswith("rec-") else "one_time"
     try:
@@ -1175,10 +1169,7 @@ def delivery_for_sub(site_user_id: str, sub_id: str, sub: dict | None = None) ->
             (site_user_id, bot_sub_id, kind),
         ).fetchone()
         if row:
-            data = dict(row)
-            if _delivery_active(data):
-                return _delivery_access(data)
-            return None
+            return _delivery_access(dict(row))
         row = conn.execute(
             """
             SELECT d.*, c.login, c.secret_enc, c.totp_enc, c.sheet_meta
@@ -1192,8 +1183,7 @@ def delivery_for_sub(site_user_id: str, sub_id: str, sub: dict | None = None) ->
     for candidate in row:
         data = dict(candidate)
         if str(data.get("bot_sub_kind") or "") == kind or not data.get("bot_sub_kind"):
-            if _delivery_active(data):
-                return _delivery_access(data)
+            return _delivery_access(data)
     return None
 
 
@@ -1249,26 +1239,30 @@ def _find_delivery_for_sub(sub: dict, deliveries: list[dict], used_ids: set[str]
     kind = sub.get("kind") or "one_time"
     bot_id = sub.get("botId")
 
-    pool = [
+    candidates = [
         d for d in deliveries
         if str(d.get("id") or "") not in used_ids
-        and _delivery_active(d)
         and _delivery_matches_product(d, pid)
     ]
-    if not pool:
+    if not candidates:
         return None
 
-    if bot_id:
-        for d in pool:
-            if d.get("bot_sub_id") == int(bot_id) and str(d.get("bot_sub_kind") or "one_time") == kind:
-                return d
+    def pick(pool: list[dict]) -> dict | None:
+        if bot_id:
+            for d in pool:
+                if d.get("bot_sub_id") == int(bot_id) and str(d.get("bot_sub_kind") or "one_time") == kind:
+                    return d
+        unlinked = [d for d in pool if not d.get("bot_sub_id")]
+        if unlinked:
+            unlinked.sort(key=lambda d: d.get("created_at") or "", reverse=True)
+            return unlinked[0]
+        return None
 
-    unlinked = [d for d in pool if not d.get("bot_sub_id")]
-    if unlinked:
-        unlinked.sort(key=lambda d: d.get("created_at") or "", reverse=True)
-        return unlinked[0]
-
-    return None
+    # Спочатку свіжі видачі; якщо expires_at прострочений (автооплата не оновлює delivery) — все одно віддаємо
+    found = pick([d for d in candidates if _delivery_active(d)])
+    if found:
+        return found
+    return pick(candidates)
 
 
 def _apply_delivery_to_sub(sub: dict, row: dict, deliveries: list[dict]) -> None:
@@ -1329,7 +1323,7 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
             return
 
         row = _find_delivery_for_sub(sub, deliveries, used_delivery_ids)
-        if not row or not _delivery_active(row):
+        if not row:
             sub.pop("login", None)
             sub.pop("password", None)
             sub.pop("hasTotp", None)

@@ -258,6 +258,54 @@ def test_orphan_delivery() -> None:
         svc.list_deliveries_for_user = orig
 
 
+def test_enrich_keeps_creds_when_delivery_expired() -> None:
+    """Після місяця delivery.expires_at прострочений, але підписка (автооплата) ще жива — дані лишаються."""
+    past = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    future = (datetime.now(timezone.utc) + timedelta(days=28)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    deliveries = [
+        {
+            "id": "d-exp",
+            "product_id": 10,
+            "bot_sub_id": 9,
+            "bot_sub_kind": "recurring",
+            "created_at": "2026-01-01T00:00:00Z",
+            "expires_at": past,
+            "login": "keep@test.com",
+            "secret_enc": encrypt("secret"),
+            "totp_enc": encrypt("JBSWY3DPEHPK3PXP"),
+            "payment_id": "inv-exp",
+        },
+    ]
+    import backend.stock_svc as svc
+
+    orig = svc.list_deliveries_for_user
+    svc.list_deliveries_for_user = lambda _uid: deliveries
+    try:
+        assert not _delivery_active(deliveries[0])
+        subs = {
+            "oneTime": [],
+            "recurring": [
+                {
+                    "id": "rec-9",
+                    "botId": 9,
+                    "productId": "10",
+                    "kind": "recurring",
+                    "status": "active",
+                    "expiresAt": future,
+                    "startsAt": "2026-01-01T00:00:00Z",
+                    "name": "Netflix",
+                },
+            ],
+        }
+        enrich_subscriptions("u1", subs)
+        assert subs["recurring"][0]["login"] == "keep@test.com"
+        assert subs["recurring"][0]["password"] == "secret"
+        assert subs["recurring"][0]["hasTotp"] is True
+        assert subs["recurring"][0]["deliveryId"] == "d-exp"
+    finally:
+        svc.list_deliveries_for_user = orig
+
+
 def main() -> None:
     tests = [
         test_netflix_availability,
@@ -268,6 +316,7 @@ def main() -> None:
         test_enrich_no_steal_linked,
         test_gpt_available,
         test_orphan_delivery,
+        test_enrich_keeps_creds_when_delivery_expired,
     ]
     for fn in tests:
         fn()
