@@ -793,6 +793,20 @@ def delivery_admin_payload(payment_row: dict) -> dict:
         return {"autoIssue": False, "delivered": False}
     auto_issue = is_auto_issue(product_id)
     access = get_delivery_access_for_payment(site_user_id, invoice_id) if invoice_id and site_user_id else None
+    if not access and invoice_id:
+        rows = get_deliveries_by_payment(invoice_id)
+        parts = _access_parts_from_rows(rows)
+        if parts:
+            if len(parts) == 1 and not parts[0].get("bundleProductId"):
+                access = parts[0]
+            else:
+                access = {
+                    "id": parts[0]["id"],
+                    "bundle": True,
+                    "parts": parts,
+                    "login": parts[0].get("login"),
+                    "password": parts[0].get("password"),
+                }
     payload: dict = {"autoIssue": auto_issue, "delivered": bool(access)}
     if not access:
         return payload
