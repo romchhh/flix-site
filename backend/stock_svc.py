@@ -1018,18 +1018,49 @@ def append_orphan_deliveries(site_user_id: str, subs: dict) -> dict:
 
 
 def list_deliveries_for_user(site_user_id: str) -> list[dict]:
+    """Видачі цього акаунта і того ж bot user (гість і email після реєстрації)."""
     with db() as conn:
-        rows = conn.execute(
-            """
-            SELECT d.*, c.login, c.secret_enc, c.totp_enc, c.sheet_meta
-            FROM deliveries d
-            JOIN credentials c ON c.id = d.credential_id
-            WHERE d.site_user_id = ?
-            ORDER BY d.created_at DESC
-            """,
+        bot_row = conn.execute(
+            "SELECT bot_user_id FROM users WHERE id = ?",
             (site_user_id,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        ).fetchone()
+        bot_user_id = int(bot_row["bot_user_id"]) if bot_row and bot_row["bot_user_id"] else None
+        if bot_user_id:
+            rows = conn.execute(
+                """
+                SELECT d.*, c.login, c.secret_enc, c.totp_enc, c.sheet_meta
+                FROM deliveries d
+                JOIN credentials c ON c.id = d.credential_id
+                WHERE d.site_user_id = ?
+                   OR d.payment_id IN (
+                        SELECT invoice_id FROM site_payments WHERE bot_user_id = ?
+                   )
+                   OR d.site_user_id IN (
+                        SELECT id FROM users WHERE bot_user_id = ?
+                   )
+                ORDER BY d.created_at DESC
+                """,
+                (site_user_id, bot_user_id, bot_user_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT d.*, c.login, c.secret_enc, c.totp_enc, c.sheet_meta
+                FROM deliveries d
+                JOIN credentials c ON c.id = d.credential_id
+                WHERE d.site_user_id = ?
+                ORDER BY d.created_at DESC
+                """,
+                (site_user_id,),
+            ).fetchall()
+    seen: set[str] = set()
+    out: list[dict] = []
+    for row in rows:
+        if row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        out.append(dict(row))
+    return out
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -1053,6 +1084,38 @@ def _delivery_active(row: dict) -> bool:
     if exp.tzinfo is None:
         exp = exp.replace(tzinfo=timezone.utc)
     return exp > datetime.now(timezone.utc)
+
+
+def _extend_delivery_until_sub(row: dict, sub: dict) -> None:
+    """Після продовження підписки той самий логін лишається до нового expiresAt."""
+    sub_exp = _parse_iso(sub.get("expiresAt"))
+    if not sub_exp:
+        return
+    if sub_exp.tzinfo is None:
+        sub_exp = sub_exp.replace(tzinfo=timezone.utc)
+    del_exp = _parse_iso(row.get("expires_at"))
+    if del_exp and del_exp.tzinfo is None:
+        del_exp = del_exp.replace(tzinfo=timezone.utc)
+    if del_exp and del_exp >= sub_exp:
+        return
+    new_exp = sub_exp.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payment_id = row.get("payment_id")
+    bundle_id = row.get("bundle_product_id")
+    with db() as conn:
+        if payment_id and bundle_id:
+            conn.execute(
+                """
+                UPDATE deliveries SET expires_at = ?
+                WHERE payment_id = ? AND bundle_product_id = ?
+                """,
+                (new_exp, payment_id, bundle_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE deliveries SET expires_at = ? WHERE id = ?",
+                (new_exp, row["id"]),
+            )
+    row["expires_at"] = new_exp
 
 
 def _sub_active(sub: dict) -> bool:
@@ -1346,6 +1409,7 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
             return
 
         used_delivery_ids.add(str(row["id"]))
+        _extend_delivery_until_sub(row, sub)
         payment_id = row.get("payment_id")
         bundle_id = row.get("bundle_product_id")
         if payment_id and bundle_id:
@@ -1433,6 +1497,12 @@ async def link_delivery_to_bot_sub(payment_row: dict) -> None:
             return True
         return False
 
+    payment_type = str(payment_row.get("payment_type") or "")
+    if payment_type == "subscription":
+        if _link_kind(live.get("recurring") or [], "recurring"):
+            return
+        _link_kind(live.get("oneTime") or [], "one_time")
+        return
     if _link_kind(live.get("oneTime") or [], "one_time"):
         return
     _link_kind(live.get("recurring") or [], "recurring")
