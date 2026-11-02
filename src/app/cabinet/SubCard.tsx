@@ -244,16 +244,14 @@ export function SubCard({ sub }: { sub: Sub }) {
                 <div>
                   <small>Картка</small>
                   <b>{cardLabel || "не привʼязана"}</b>
-                  {billingOn && (
-                    <button
-                      type="button"
-                      className="sub-card-change"
-                      onClick={() => { setError(null); setConfirmCard(true); }}
-                      disabled={busy}
-                    >
-                      Змінити картку
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="sub-card-change"
+                    onClick={() => { setError(null); setConfirmCard(true); }}
+                    disabled={busy}
+                  >
+                    Змінити картку
+                  </button>
                 </div>
               )}
               {sub.recurring && billingOn && nextPay && (
@@ -365,7 +363,9 @@ export function SubCard({ sub }: { sub: Sub }) {
       <ConfirmDialog
         open={confirmCard}
         title="Змінити картку?"
-        message="Заблокуємо 1 грн на новій картці і одразу знімемо блокування. Гроші не списуються. Дата наступного списання лишається тією самою."
+        message={billingOn
+          ? "Заблокуємо 1 грн на новій картці і одразу знімемо блокування. Гроші не списуються. Дата наступного списання лишається тією самою."
+          : "Заблокуємо 1 грн на новій картці і одразу знімемо блокування. Гроші не списуються. Автосписання зараз вимкнене — нова картка збережеться для наступного підключення."}
         confirmLabel="Перейти до Monobank"
         cancelLabel="Скасувати"
         busy={busy}
