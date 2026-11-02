@@ -1,11 +1,21 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Plan } from "@/lib/plan-types";
 import type { SiteUser } from "@/lib/types";
 import { uah } from "@/lib/display";
 import { Arrow } from "@/components/Logo";
 import { SUPPORT_TG } from "@/lib/seo";
+
+type AppliedPromo = {
+  code: string;
+  type: string;
+  discountPercent?: number | null;
+  freeMonths?: number | null;
+  amount: number;
+  amountSaved: number;
+  months: number;
+};
 
 export function BuyForm({
   productId,
@@ -26,6 +36,10 @@ export function BuyForm({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [user, setUser] = useState<SiteUser | null | undefined>(undefined);
+  const [promoInput, setPromoInput] = useState("");
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promo, setPromo] = useState<AppliedPromo | null>(null);
   const buyPath = `/buy/${slug}`;
   const loginHref = `/login?next=${encodeURIComponent(buyPath)}`;
   const regHref = `/login?mode=reg&next=${encodeURIComponent(buyPath)}`;
@@ -37,9 +51,64 @@ export function BuyForm({
       .catch(() => setUser(null));
   }, []);
 
+  useEffect(() => {
+    setPromo(null);
+    setPromoError(null);
+  }, [months]);
+
   const chosen = options.find((o) => o.months === months);
   const canCheckout = user && !user.isGuest;
   const soldOut = free !== null && free <= 0;
+
+  const payTotal = useMemo(() => {
+    if (!chosen) return 0;
+    if (!promo) return chosen.total;
+    return Math.max(0, Math.round(promo.amount * 100));
+  }, [chosen, promo]);
+
+  async function applyPromo() {
+    const code = promoInput.trim();
+    if (!code || !chosen) return;
+    setPromoBusy(true);
+    setPromoError(null);
+    try {
+      const res = await fetch("/api/promo/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          productId,
+          months,
+          amount: chosen.total / 100,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setPromo(null);
+        setPromoError(data.message || data.error || "Невірний промокод");
+        return;
+      }
+      const p = data.promo || {};
+      const pricing = data.pricing || {};
+      setPromo({
+        code: p.code || code.toUpperCase(),
+        type: p.type,
+        discountPercent: p.discountPercent,
+        freeMonths: p.freeMonths,
+        amount: Number(pricing.amount ?? 0),
+        amountSaved: Number(pricing.amountSaved ?? 0),
+        months: Number(pricing.months ?? months),
+      });
+      if (p.type === "free" && p.freeMonths) {
+        const match = options.find((o) => o.months === Number(p.freeMonths));
+        if (match) setMonths(match.months);
+      }
+    } catch {
+      setPromoError("Мережа не відповідає");
+    } finally {
+      setPromoBusy(false);
+    }
+  }
 
   async function pay() {
     setBusy(true);
@@ -48,7 +117,11 @@ export function BuyForm({
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId, months }),
+        body: JSON.stringify({
+          productId,
+          months: promo?.type === "free" ? promo.months : months,
+          promoCode: promo?.code || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -123,6 +196,57 @@ export function BuyForm({
       </section>
 
       <section className="buy-form-block buy-form-meta">
+        <div className="buy-promo">
+          <label className="buy-form-note" htmlFor="promo-code">Промокод</label>
+          <div className="buy-promo-row">
+            <input
+              id="promo-code"
+              className="buy-promo-input"
+              type="text"
+              value={promoInput}
+              onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void applyPromo();
+                }
+              }}
+              placeholder="FLIX-XXXX-XXXX"
+              autoComplete="off"
+              disabled={promoBusy || busy}
+            />
+            <button
+              type="button"
+              className="btn buy-promo-btn"
+              onClick={applyPromo}
+              disabled={promoBusy || !promoInput.trim()}
+            >
+              {promoBusy ? "…" : promo ? "Ок" : "Застосувати"}
+            </button>
+            {promo && (
+              <button
+                type="button"
+                className="buy-promo-clear"
+                onClick={() => {
+                  setPromo(null);
+                  setPromoInput("");
+                  setPromoError(null);
+                }}
+              >
+                Скинути
+              </button>
+            )}
+          </div>
+          {promo && (
+            <p className="buy-form-note buy-form-note-box">
+              {promo.type === "free"
+                ? `Промокод ${promo.code}: безкоштовно на ${promo.months} міс.`
+                : `Промокод ${promo.code}: −${promo.discountPercent ?? 0}% (−${uah(Math.round(promo.amountSaved * 100))} ₴)`}
+            </p>
+          )}
+          {promoError && <p className="err buy-pay-err">{promoError}</p>}
+        </div>
+
         {free !== null && free > 0 && free <= 3 && (
           <p className="buy-form-note buy-form-note-box">
             Лишилось {free} шт. за цією ціною
@@ -134,8 +258,9 @@ export function BuyForm({
         )}
 
         <p className="buy-form-terms">
-          Оплата карткою через Monobank.
-          {recurring ? " Наступні списання — раз на місяць, тією ж карткою." : ""}
+          {promo?.type === "free"
+            ? "Безкоштовна активація за промокодом — без оплати карткою."
+            : `Оплата карткою через Monobank.${recurring ? " Наступні списання — раз на місяць, тією ж карткою." : ""}`}
         </p>
         {user !== undefined && !canCheckout && (
           <p className="buy-form-note buy-form-note-box">
@@ -154,7 +279,14 @@ export function BuyForm({
         <div className="buy-pay-inner">
           <div className="buy-pay-total">
             <span>До сплати</span>
-            <b>{uah(chosen.total)} ₴</b>
+            <b>
+              {uah(payTotal)} ₴
+              {promo && payTotal < chosen.total && (
+                <small style={{ display: "block", fontWeight: 600, opacity: 0.7, textDecoration: "line-through" }}>
+                  {uah(chosen.total)} ₴
+                </small>
+              )}
+            </b>
           </div>
           {soldOut ? (
             <button className="btn buy-pay-btn" type="button" disabled>Немає в наявності</button>
@@ -165,7 +297,13 @@ export function BuyForm({
             </Link>
           ) : (
             <button className="btn buy-pay-btn" type="button" onClick={pay} disabled={busy || user === undefined}>
-              {busy ? "Створюємо…" : user === undefined ? "Перевіряємо…" : "До оплати"}
+              {busy
+                ? "Створюємо…"
+                : user === undefined
+                  ? "Перевіряємо…"
+                  : promo?.type === "free" || payTotal === 0
+                    ? "Активувати"
+                    : "До оплати"}
               <span className="dot"><Arrow /></span>
             </button>
           )}

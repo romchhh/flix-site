@@ -88,6 +88,7 @@ export function SubCard({ sub }: { sub: Sub }) {
   const [code, setCode] = useState<string | null>(null);
   const [codeLeft, setCodeLeft] = useState(0);
   const [codeBusy, setCodeBusy] = useState(false);
+  const [confirmCard, setConfirmCard] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -146,6 +147,25 @@ export function SubCard({ sub }: { sub: Sub }) {
     if (code && codeLeft > 0) return;
     fetchCode();
   }, [open, sub.hasTotp, sub.twoFaUrl, code, codeLeft, codeBusy, error, fetchCode]);
+
+  async function changeCard() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/subs/${sub.id}/change-card`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.pageUrl || !data.invoiceId) {
+        setError(data.error ?? "Не вдалось підготувати зміну картки");
+        setBusy(false);
+        return;
+      }
+      sessionStorage.setItem("flix_card_rebind", data.invoiceId);
+      window.location.href = data.pageUrl;
+    } catch {
+      setError("Мережа не відповідає");
+      setBusy(false);
+    }
+  }
 
   async function cancel() {
     setBusy(true);
@@ -224,6 +244,16 @@ export function SubCard({ sub }: { sub: Sub }) {
                 <div>
                   <small>Картка</small>
                   <b>{cardLabel || "не привʼязана"}</b>
+                  {billingOn && (
+                    <button
+                      type="button"
+                      className="sub-card-change"
+                      onClick={() => { setError(null); setConfirmCard(true); }}
+                      disabled={busy}
+                    >
+                      Змінити картку
+                    </button>
+                  )}
                 </div>
               )}
               {sub.recurring && billingOn && nextPay && (
@@ -332,6 +362,16 @@ export function SubCard({ sub }: { sub: Sub }) {
         )}
       </article>
 
+      <ConfirmDialog
+        open={confirmCard}
+        title="Змінити картку?"
+        message="Заблокуємо 1 грн на новій картці і одразу знімемо блокування. Гроші не списуються. Дата наступного списання лишається тією самою."
+        confirmLabel="Перейти до Monobank"
+        cancelLabel="Скасувати"
+        busy={busy}
+        onConfirm={changeCard}
+        onCancel={() => { if (!busy) setConfirmCard(false); }}
+      />
       <ConfirmDialog
         open={confirmCancel}
         title="Вимкнути автосписання?"

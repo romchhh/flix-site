@@ -6,6 +6,7 @@ import { backendJson } from "@/lib/backend";
 import { SiteHeader, SiteFooter } from "@/components/SiteHeader";
 import { Arrow, TgIcon } from "@/components/Logo";
 import { SubCard } from "./SubCard";
+import { CardRebindSync } from "./CardRebindSync";
 import { PaymentHistory } from "./PaymentHistory";
 import { SubPhoto } from "./SubPhoto";
 import { VerifyBar } from "./VerifyBar";
@@ -77,6 +78,7 @@ export default async function Cabinet({ searchParams }:
       <SiteHeader />
       <div className="wrap-narrow">
       <h1 className="h-sm" style={{ margin: "28px 0 22px" }}>Мої<br /><em>підписки</em></h1>
+      <CardRebindSync />
 
       {me.telegramId && (
         <div className="cab-user">

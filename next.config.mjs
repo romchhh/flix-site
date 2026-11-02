@@ -41,6 +41,7 @@ export default {
     return [
       { source: "/api/auth/:path*", destination: `${backend}/api/auth/:path*` },
       { source: "/api/checkout", destination: `${backend}/api/checkout` },
+      { source: "/api/promo/:path*", destination: `${backend}/api/promo/:path*` },
       { source: "/api/webhooks/:path*", destination: `${backend}/api/webhooks/:path*` },
       { source: "/api/me", destination: `${backend}/api/me` },
       { source: "/api/catalog", destination: `${backend}/api/catalog` },
@@ -50,6 +51,7 @@ export default {
       { source: "/api/order/:path*", destination: `${backend}/api/order/:path*` },
       { source: "/api/admin/:path*", destination: `${backend}/api/admin/:path*` },
       { source: "/api/subs/:path*", destination: `${backend}/api/subs/:path*` },
+      { source: "/api/card/:path*", destination: `${backend}/api/card/:path*` },
     ];
   },
 };

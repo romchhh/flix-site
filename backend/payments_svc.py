@@ -22,6 +22,19 @@ def _ensure_webhook_col() -> None:
             conn.execute("ALTER TABLE site_payments ADD COLUMN last_webhook TEXT")
 
 
+def _ensure_promo_cols() -> None:
+    with db() as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(site_payments)").fetchall()}
+        if "promo_code" not in cols:
+            conn.execute("ALTER TABLE site_payments ADD COLUMN promo_code TEXT")
+        if "promo_code_id" not in cols:
+            conn.execute("ALTER TABLE site_payments ADD COLUMN promo_code_id INTEGER")
+        if "promo_amount_saved" not in cols:
+            conn.execute("ALTER TABLE site_payments ADD COLUMN promo_amount_saved REAL")
+        if "original_amount" not in cols:
+            conn.execute("ALTER TABLE site_payments ADD COLUMN original_amount REAL")
+
+
 def save_site_payment(
     *,
     payment_id: str,
@@ -35,20 +48,36 @@ def save_site_payment(
     payment_type: str,
     wallet_id: str | None,
     username: str | None,
+    status: str = "pending",
+    mono_status: str | None = None,
+    synced_to_bot: int = 0,
+    promo_code: str | None = None,
+    promo_code_id: int | None = None,
+    promo_amount_saved: float | None = None,
+    original_amount: float | None = None,
 ) -> None:
     _ensure_webhook_col()
+    _ensure_promo_cols()
     with db() as conn:
         conn.execute(
             """
             INSERT INTO site_payments (
                 payment_id, invoice_id, site_user_id, bot_user_id, telegram_id,
                 product_id, months, amount, payment_type, wallet_id, username,
-                status, mono_status, synced_to_bot, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, 0, ?, ?)
+                status, mono_status, synced_to_bot, created_at, updated_at,
+                promo_code, promo_code_id, promo_amount_saved, original_amount
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(invoice_id) DO UPDATE SET
                 payment_id = excluded.payment_id,
                 bot_user_id = excluded.bot_user_id,
                 amount = excluded.amount,
+                status = excluded.status,
+                mono_status = COALESCE(excluded.mono_status, site_payments.mono_status),
+                synced_to_bot = excluded.synced_to_bot,
+                promo_code = COALESCE(excluded.promo_code, site_payments.promo_code),
+                promo_code_id = COALESCE(excluded.promo_code_id, site_payments.promo_code_id),
+                promo_amount_saved = COALESCE(excluded.promo_amount_saved, site_payments.promo_amount_saved),
+                original_amount = COALESCE(excluded.original_amount, site_payments.original_amount),
                 updated_at = excluded.updated_at
             """,
             (
@@ -63,8 +92,15 @@ def save_site_payment(
                 payment_type,
                 wallet_id,
                 username,
+                status,
+                mono_status,
+                int(synced_to_bot),
                 now(),
                 now(),
+                promo_code,
+                promo_code_id,
+                promo_amount_saved,
+                original_amount,
             ),
         )
 
@@ -219,6 +255,9 @@ async def sync_payment_to_bot(row: dict, *, fulfill: bool = True) -> bool:
             payment_type=str(row.get("payment_type") or "one_time"),
             wallet_id=row.get("wallet_id"),
             username=row.get("username"),
+            promo_code=row.get("promo_code"),
+            promo_code_id=int(row["promo_code_id"]) if row.get("promo_code_id") is not None else None,
+            promo_amount_saved=float(row["promo_amount_saved"]) if row.get("promo_amount_saved") is not None else None,
         )
     except BotAPIError as e:
         log.warning("sync payment %s to bot: %s", row.get("invoice_id"), e)

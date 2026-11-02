@@ -27,7 +27,7 @@ async def bot_request(method: str, path: str, json: dict | None = None, params: 
     if res.status_code >= 400:
         try:
             data = res.json()
-            message = data.get("error") or res.text
+            message = data.get("message") or data.get("error") or res.text
         except Exception:
             message = res.text
         raise BotAPIError(res.status_code, message)
@@ -89,6 +89,46 @@ async def user_payments(user_id: int):
     return await bot_request("GET", f"/api/v1/users/{user_id}/payments")
 
 
+async def validate_promo(
+    *,
+    code: str,
+    product_id: int | None = None,
+    months: int | None = None,
+    amount: float | None = None,
+):
+    payload: dict = {"code": code}
+    if product_id is not None:
+        payload["product_id"] = product_id
+    if months is not None:
+        payload["months"] = months
+    if amount is not None:
+        payload["amount"] = amount
+    return await bot_request("POST", "/api/v1/promo/validate", json=payload)
+
+
+async def create_bot_payment(
+    *,
+    user_id: int,
+    product_id: int,
+    months: int,
+    promo_code: str | None = None,
+    redirect_url: str | None = None,
+    username: str | None = None,
+):
+    payload: dict = {
+        "user_id": user_id,
+        "product_id": product_id,
+        "months": months,
+        "source": "site",
+        "username": username,
+    }
+    if promo_code:
+        payload["promo_code"] = promo_code
+    if redirect_url:
+        payload["redirect_url"] = redirect_url
+    return await bot_request("POST", "/api/v1/payments", json=payload)
+
+
 async def record_payment(
     *,
     user_id: int,
@@ -100,6 +140,9 @@ async def record_payment(
     payment_type: str,
     wallet_id: str | None = None,
     username: str | None = None,
+    promo_code: str | None = None,
+    promo_code_id: int | None = None,
+    promo_amount_saved: float | None = None,
 ):
     payload = {
         "user_id": user_id,
@@ -114,6 +157,12 @@ async def record_payment(
     }
     if wallet_id:
         payload["wallet_id"] = wallet_id
+    if promo_code:
+        payload["promo_code"] = promo_code
+    if promo_code_id is not None:
+        payload["promo_code_id"] = promo_code_id
+    if promo_amount_saved is not None:
+        payload["promo_amount_saved"] = promo_amount_saved
     return await bot_request("POST", "/api/v1/payments/record", json=payload)
 
 
@@ -144,6 +193,22 @@ async def get_payment(invoice_id: str):
 
 async def cancel_recurring(user_id: int, sub_id: int):
     return await bot_request("POST", f"/api/v1/users/{user_id}/recurring/{sub_id}/cancel")
+
+
+async def start_card_rebind(*, user_id: int, sub_id: int, redirect_url: str):
+    return await bot_request(
+        "POST",
+        f"/api/v1/users/{user_id}/card/rebind",
+        json={"sub_id": sub_id, "redirect_url": redirect_url},
+    )
+
+
+async def finish_card_rebind(*, user_id: int, invoice_id: str):
+    return await bot_request(
+        "POST",
+        f"/api/v1/users/{user_id}/card/rebind/finish",
+        json={"invoice_id": invoice_id},
+    )
 
 
 async def admin_stats():

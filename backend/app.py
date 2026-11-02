@@ -889,11 +889,45 @@ async def telegram_auth(request: Request):
     return await complete_telegram_session(request, tg_id, username, photo)
 
 
+@app.post("/api/promo/validate")
+async def promo_validate_api(request: Request):
+    body = await request.json()
+    code = str(body.get("code") or body.get("promoCode") or "").strip()
+    if not code:
+        return json_error("Введіть промокод")
+    product_id = body.get("productId") or body.get("product_id")
+    months = body.get("months")
+    amount = body.get("amount")
+    try:
+        product_id_i = int(product_id) if product_id is not None else None
+    except (TypeError, ValueError):
+        product_id_i = None
+    try:
+        months_i = int(months) if months is not None else None
+    except (TypeError, ValueError):
+        months_i = None
+    try:
+        amount_f = float(amount) if amount is not None else None
+    except (TypeError, ValueError):
+        amount_f = None
+    try:
+        data = await bot_client.validate_promo(
+            code=code,
+            product_id=product_id_i,
+            months=months_i,
+            amount=amount_f,
+        )
+    except BotAPIError as e:
+        return json_error(e.message or "Невірний промокод", min(e.status, 502))
+    return JSONResponse(data)
+
+
 @app.post("/api/checkout")
 async def checkout(request: Request):
     body = await request.json()
     product_id = body.get("productId") or body.get("product_id")
     months = body.get("months")
+    promo_raw = str(body.get("promoCode") or body.get("promo_code") or "").strip()
     try:
         months = int(months)
         product_id_int = int(product_id)
@@ -920,10 +954,45 @@ async def checkout(request: Request):
     plan = next((p for p in (item.get("plans") or []) if int(p.get("months") or 0) == months), None)
     if not plan:
         return json_error("Такого строку немає")
-    amount_uah = int(plan["total"]) / 100
-    if amount_uah <= 0:
+    original_amount = int(plan["total"]) / 100
+    if original_amount <= 0:
         return json_error("Некоректна ціна")
-    subscription = bool(item.get("recurring") or item.get("paymentType") == "subscription")
+
+    amount_uah = original_amount
+    promo_code = None
+    promo_code_id = None
+    promo_amount_saved = None
+    is_free_promo = False
+
+    if promo_raw:
+        try:
+            validated = await bot_client.validate_promo(
+                code=promo_raw,
+                product_id=product_id_int,
+                months=months,
+                amount=original_amount,
+            )
+        except BotAPIError as e:
+            return json_error(e.message or "Невірний промокод", min(e.status, 400))
+        if not validated.get("ok"):
+            return json_error(validated.get("message") or "Невірний промокод")
+        promo = validated.get("promo") or {}
+        promo_code = promo.get("code") or promo_raw.upper()
+        promo_code_id = promo.get("id")
+        pricing = validated.get("pricing") or {}
+        if promo.get("type") == "free":
+            is_free_promo = True
+            months = int(promo.get("freeMonths") or pricing.get("months") or months)
+            amount_uah = 0
+            promo_amount_saved = float(pricing.get("amountSaved") or original_amount)
+        else:
+            amount_uah = float(pricing.get("amount") if pricing.get("amount") is not None else original_amount)
+            promo_amount_saved = float(pricing.get("amountSaved") or max(0.0, original_amount - amount_uah))
+            if amount_uah <= 0:
+                is_free_promo = True
+                amount_uah = 0
+
+    subscription = bool(item.get("recurring") or item.get("paymentType") == "subscription") and not is_free_promo
     origin = (request.headers.get("origin") or APP_URL or "").rstrip("/")
     auto_issue = bool(item.get("autoIssue"))
 
@@ -946,6 +1015,55 @@ async def checkout(request: Request):
                 return json_error(e.message or "Не вдалось створити акаунт для оплати", min(e.status, 502))
             with db() as conn:
                 conn.execute("UPDATE users SET bot_user_id = ? WHERE id = ?", (bot_uid, uid))
+
+        if is_free_promo:
+            try:
+                created = await bot_client.create_bot_payment(
+                    user_id=bot_uid,
+                    product_id=product_id_int,
+                    months=months,
+                    promo_code=promo_code,
+                    redirect_url=f"{origin or APP_URL}/cabinet",
+                    username=username,
+                )
+            except BotAPIError as e:
+                return json_error(e.message or "Не вдалось активувати промокод", min(e.status, 502))
+            invoice_id = str(created.get("invoice_id") or created.get("payment_id"))
+            payment_id = str(created.get("payment_id") or invoice_id)
+            payments_svc.save_site_payment(
+                payment_id=payment_id,
+                invoice_id=invoice_id,
+                site_user_id=uid,
+                bot_user_id=bot_uid,
+                telegram_id=int(telegram_id) if telegram_id else None,
+                product_id=product_id_int,
+                months=months,
+                amount=0,
+                payment_type="one_time",
+                wallet_id=None,
+                username=username,
+                status="success",
+                mono_status="success",
+                synced_to_bot=1,
+                promo_code=promo_code,
+                promo_code_id=int(promo_code_id) if promo_code_id is not None else None,
+                promo_amount_saved=promo_amount_saved,
+                original_amount=original_amount,
+            )
+            row = payments_svc.get_site_payment(invoice_id)
+            if row:
+                await payments_svc.fulfill_paid_payment(row)
+            return JSONResponse({
+                "ok": True,
+                "free": True,
+                "pageUrl": f"{origin or APP_URL}/order/{invoice_id}",
+                "ref": invoice_id,
+                "invoice_id": invoice_id,
+                "payment_id": payment_id,
+                "autoIssue": auto_issue,
+                "amount": 0,
+                "promoCode": promo_code,
+            })
 
         payment_ref = f"site_{bot_uid}_{int(time.time())}"
         redirect_url = f"{origin or APP_URL}/order/{payment_ref}"
@@ -970,6 +1088,10 @@ async def checkout(request: Request):
             payment_type=created["payment_type"],
             wallet_id=created.get("wallet_id"),
             username=username,
+            promo_code=promo_code,
+            promo_code_id=int(promo_code_id) if promo_code_id is not None else None,
+            promo_amount_saved=promo_amount_saved,
+            original_amount=original_amount,
         )
         synced = await payments_svc.sync_payment_to_bot_by_ref(created["invoice_id"])
         if not synced:
@@ -987,6 +1109,9 @@ async def checkout(request: Request):
         "invoice_id": created["invoice_id"],
         "payment_id": created["payment_id"],
         "autoIssue": auto_issue,
+        "amount": amount_uah,
+        "promoCode": promo_code,
+        "promoAmountSaved": promo_amount_saved,
     })
     return resp
 
@@ -1148,6 +1273,66 @@ async def cabinet(request: Request, order: str | None = None):
         "payments": payments,
         "pending": pending,
     }
+
+
+@app.post("/api/subs/{sub_id}/change-card")
+async def change_card(sub_id: str, request: Request):
+    uid = current_user_id(request)
+    if not uid:
+        return json_error("Unauthorized", 401)
+    me = get_user(uid)
+    if not me:
+        return json_error("Unauthorized", 401)
+    bot_id = await resolve_bot_user_id(me, uid) or me["bot_user_id"] or me["telegram_id"]
+    if not bot_id:
+        return json_error("Спочатку привʼяжи акаунт", 400)
+    raw = sub_id.replace("rec-", "")
+    try:
+        bot_sub_id = int(raw)
+    except ValueError:
+        return json_error("Змінити картку можна лише для підписки з автосписанням")
+    origin = (request.headers.get("origin") or APP_URL or "").rstrip("/")
+    redirect_url = f"{origin or APP_URL}/cabinet?card=1"
+    try:
+        created = await bot_client.start_card_rebind(
+            user_id=int(bot_id),
+            sub_id=bot_sub_id,
+            redirect_url=redirect_url,
+        )
+    except BotAPIError as e:
+        return json_error(e.message or "Не вдалось підготувати зміну картки", min(e.status, 502))
+    invoice_id = created.get("invoiceId") or created.get("invoice_id")
+    page = created.get("pageUrl")
+    return JSONResponse({
+        "ok": True,
+        "pageUrl": page,
+        "invoiceId": invoice_id,
+    })
+
+
+@app.post("/api/card/rebind/finish")
+async def change_card_finish(request: Request):
+    uid = current_user_id(request)
+    if not uid:
+        return json_error("Unauthorized", 401)
+    me = get_user(uid)
+    if not me:
+        return json_error("Unauthorized", 401)
+    bot_id = await resolve_bot_user_id(me, uid) or me["bot_user_id"] or me["telegram_id"]
+    if not bot_id:
+        return json_error("Спочатку привʼяжи акаунт", 400)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    invoice_id = str(body.get("invoiceId") or body.get("invoice_id") or "").strip()
+    if not invoice_id:
+        return json_error("invoiceId required")
+    try:
+        result = await bot_client.finish_card_rebind(user_id=int(bot_id), invoice_id=invoice_id)
+    except BotAPIError as e:
+        return json_error(e.message or "Не вдалось підтвердити картку", min(e.status, 502))
+    return JSONResponse(result)
 
 
 @app.post("/api/subs/{sub_id}/cancel")
