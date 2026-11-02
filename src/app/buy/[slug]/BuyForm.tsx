@@ -241,7 +241,9 @@ export function BuyForm({
             <p className="buy-form-note buy-form-note-box">
               {promo.type === "free"
                 ? `Промокод ${promo.code}: безкоштовно на ${promo.months} міс.`
-                : `Промокод ${promo.code}: −${promo.discountPercent ?? 0}% (−${uah(Math.round(promo.amountSaved * 100))} ₴)`}
+                : `Промокод ${promo.code}: −${promo.discountPercent ?? 0}% (−${uah(Math.round(promo.amountSaved * 100))} ₴)${
+                    recurring ? ". Знижка лише на першу оплату — далі повна ціна." : ""
+                  }`}
             </p>
           )}
           {promoError && <p className="err buy-pay-err">{promoError}</p>}
@@ -260,7 +262,13 @@ export function BuyForm({
         <p className="buy-form-terms">
           {promo?.type === "free"
             ? "Безкоштовна активація за промокодом — без оплати карткою."
-            : `Оплата карткою через Monobank.${recurring ? " Наступні списання — раз на місяць, тією ж карткою." : ""}`}
+            : `Оплата карткою через Monobank.${
+                recurring
+                  ? promo
+                    ? " Наступні списання — раз на місяць за повною ціною тарифу, тією ж карткою."
+                    : " Наступні списання — раз на місяць, тією ж карткою."
+                  : ""
+              }`}
         </p>
         {user !== undefined && !canCheckout && (
           <p className="buy-form-note buy-form-note-box">
