@@ -95,6 +95,7 @@ async def validate_promo(
     product_id: int | None = None,
     months: int | None = None,
     amount: float | None = None,
+    user_id: int | None = None,
 ):
     payload: dict = {"code": code}
     if product_id is not None:
@@ -103,6 +104,8 @@ async def validate_promo(
         payload["months"] = months
     if amount is not None:
         payload["amount"] = amount
+    if user_id is not None:
+        payload["user_id"] = user_id
     return await bot_request("POST", "/api/v1/promo/validate", json=payload)
 
 

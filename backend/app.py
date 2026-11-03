@@ -910,12 +910,24 @@ async def promo_validate_api(request: Request):
         amount_f = float(amount) if amount is not None else None
     except (TypeError, ValueError):
         amount_f = None
+
+    bot_uid = None
+    uid = current_user_id(request)
+    if uid:
+        me = get_user(uid)
+        if me:
+            try:
+                bot_uid = await resolve_bot_user_id(me, uid)
+            except Exception:
+                bot_uid = me.get("bot_user_id") or me.get("telegram_id")
+
     try:
         data = await bot_client.validate_promo(
             code=code,
             product_id=product_id_i,
             months=months_i,
             amount=amount_f,
+            user_id=int(bot_uid) if bot_uid else None,
         )
     except BotAPIError as e:
         return json_error(e.message or "Невірний промокод", min(e.status, 502))
@@ -963,36 +975,6 @@ async def checkout(request: Request):
     promo_code_id = None
     promo_amount_saved = None
     is_free_promo = False
-
-    if promo_raw:
-        try:
-            validated = await bot_client.validate_promo(
-                code=promo_raw,
-                product_id=product_id_int,
-                months=months,
-                amount=original_amount,
-            )
-        except BotAPIError as e:
-            return json_error(e.message or "Невірний промокод", min(e.status, 400))
-        if not validated.get("ok"):
-            return json_error(validated.get("message") or "Невірний промокод")
-        promo = validated.get("promo") or {}
-        promo_code = promo.get("code") or promo_raw.upper()
-        promo_code_id = promo.get("id")
-        pricing = validated.get("pricing") or {}
-        if promo.get("type") == "free":
-            is_free_promo = True
-            months = int(promo.get("freeMonths") or pricing.get("months") or months)
-            amount_uah = 0
-            promo_amount_saved = float(pricing.get("amountSaved") or original_amount)
-        else:
-            amount_uah = float(pricing.get("amount") if pricing.get("amount") is not None else original_amount)
-            promo_amount_saved = float(pricing.get("amountSaved") or max(0.0, original_amount - amount_uah))
-            if amount_uah <= 0:
-                is_free_promo = True
-                amount_uah = 0
-
-    subscription = bool(item.get("recurring") or item.get("paymentType") == "subscription") and not is_free_promo
     origin = (request.headers.get("origin") or APP_URL or "").rstrip("/")
     auto_issue = bool(item.get("autoIssue"))
 
@@ -1015,6 +997,37 @@ async def checkout(request: Request):
                 return json_error(e.message or "Не вдалось створити акаунт для оплати", min(e.status, 502))
             with db() as conn:
                 conn.execute("UPDATE users SET bot_user_id = ? WHERE id = ?", (bot_uid, uid))
+
+        if promo_raw:
+            try:
+                validated = await bot_client.validate_promo(
+                    code=promo_raw,
+                    product_id=product_id_int,
+                    months=months,
+                    amount=original_amount,
+                    user_id=int(bot_uid) if bot_uid else None,
+                )
+            except BotAPIError as e:
+                return json_error(e.message or "Невірний промокод", min(e.status, 400))
+            if not validated.get("ok"):
+                return json_error(validated.get("message") or "Невірний промокод")
+            promo = validated.get("promo") or {}
+            promo_code = promo.get("code") or promo_raw.upper()
+            promo_code_id = promo.get("id")
+            pricing = validated.get("pricing") or {}
+            if promo.get("type") == "free":
+                is_free_promo = True
+                months = int(promo.get("freeMonths") or pricing.get("months") or months)
+                amount_uah = 0
+                promo_amount_saved = float(pricing.get("amountSaved") or original_amount)
+            else:
+                amount_uah = float(pricing.get("amount") if pricing.get("amount") is not None else original_amount)
+                promo_amount_saved = float(pricing.get("amountSaved") or max(0.0, original_amount - amount_uah))
+                if amount_uah <= 0:
+                    is_free_promo = True
+                    amount_uah = 0
+
+        subscription = bool(item.get("recurring") or item.get("paymentType") == "subscription") and not is_free_promo
 
         if is_free_promo:
             try:
