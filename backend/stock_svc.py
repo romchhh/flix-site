@@ -818,6 +818,8 @@ def delivery_admin_payload(payment_row: dict) -> dict:
             "password": first.get("password"),
             "profileName": first.get("profileName"),
             "pin": first.get("pin"),
+            "twoFaUrl": first.get("twoFaUrl"),
+            "hasTotp": bool(first.get("hasTotp") or first.get("twoFaUrl")),
         })
         return payload
     payload.update({
@@ -825,6 +827,8 @@ def delivery_admin_payload(payment_row: dict) -> dict:
         "password": access.get("password"),
         "profileName": access.get("profileName"),
         "pin": access.get("pin"),
+        "twoFaUrl": access.get("twoFaUrl"),
+        "hasTotp": bool(access.get("hasTotp") or access.get("twoFaUrl")),
     })
     return payload
 
@@ -1391,21 +1395,38 @@ def enrich_subscriptions(site_user_id: str, subs: dict) -> dict:
     used_delivery_ids: set[str] = set()
 
     def attach(sub: dict) -> None:
+        # Збережені з бота креденшали (issued_access) — fallback, якщо склад не знайшов delivery.
+        bot_login = sub.get("login")
+        bot_password = sub.get("password")
+        bot_two_fa = sub.get("twoFaUrl")
+        bot_has_totp = sub.get("hasTotp")
+        bot_profile = sub.get("profileName")
+        bot_pin = sub.get("pin")
+
         if not _sub_active(sub):
             sub.pop("login", None)
             sub.pop("password", None)
             sub.pop("hasTotp", None)
+            sub.pop("twoFaUrl", None)
             sub.pop("deliveryId", None)
             sub.pop("accessParts", None)
             return
 
         row = _find_delivery_for_sub(sub, deliveries, used_delivery_ids)
         if not row:
-            sub.pop("login", None)
-            sub.pop("password", None)
-            sub.pop("hasTotp", None)
-            sub.pop("deliveryId", None)
-            sub.pop("accessParts", None)
+            # Не затираємо логін/пароль з API бота — інакше кабінет порожній при збої лінку delivery.
+            if bot_login:
+                sub["login"] = bot_login
+            if bot_password:
+                sub["password"] = bot_password
+            if bot_two_fa:
+                sub["twoFaUrl"] = bot_two_fa
+            if bot_has_totp:
+                sub["hasTotp"] = bot_has_totp
+            if bot_profile:
+                sub["profileName"] = bot_profile
+            if bot_pin:
+                sub["pin"] = bot_pin
             return
 
         used_delivery_ids.add(str(row["id"]))
